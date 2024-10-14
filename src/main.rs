@@ -328,26 +328,10 @@ fn main() {
                 name: "e2",
                 square_result: Result::One,
             },
-            Basis {
-                name: "e3",
-                square_result: Result::One,
-            },
-            Basis {
-                name: "e4",
-                square_result: Result::One,
-            },
-            Basis {
-                name: "e5",
-                square_result: Result::One,
-            },
-            Basis {
-                name: "e6",
-                square_result: Result::One,
-            },
-            Basis {
-                name: "e7",
-                square_result: Result::One,
-            },
+            // Basis {
+            //     name: "e3",
+            //     square_result: Result::One,
+            // },
         ],
     };
 
