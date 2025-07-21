@@ -36,6 +36,17 @@ pub enum Value {
     Expression(Expression),
 }
 
+impl Value {
+    pub fn reverse(&self) -> Self {
+        match *self {
+            Value::Constant(value) => Value::Constant(value),
+            Value::Variable(ref name) => Value::Variable(name.clone()),
+            Value::Basis(basis_index) => Value::Basis(basis_index),
+            Value::Expression(ref expression) => Value::Expression(expression.reverse()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Term {
     pub values: Vec<Value>,
@@ -129,6 +140,12 @@ impl Term {
 
         Self {
             values: new_values.into(),
+        }
+    }
+
+    pub fn reverse(&self) -> Self {
+        Self {
+            values: self.values.iter().rev().map(Value::reverse).collect(),
         }
     }
 }
@@ -230,6 +247,12 @@ impl Expression {
         } {}
 
         result
+    }
+
+    pub fn reverse(&self) -> Self {
+        Self {
+            terms: self.terms.iter().map(Term::reverse).collect(),
+        }
     }
 
     /// must only be called once expression is simplified
@@ -336,27 +359,57 @@ fn main() {
     let a = Expression {
         terms: vec![
             Term {
-                values: vec![Value::Variable("a1".into())],
+                values: vec![Value::Variable("a".into())],
             },
             Term {
                 values: vec![
-                    Value::Variable("b1".into()),
+                    Value::Variable("b".into()),
+                    Value::Basis(BasisIndex(1)),
                     Value::Basis(BasisIndex(2)),
-                    Value::Basis(BasisIndex(3)),
                 ],
             },
             Term {
                 values: vec![
-                    Value::Variable("c1".into()),
+                    Value::Variable("c".into()),
                     Value::Basis(BasisIndex(1)),
                     Value::Basis(BasisIndex(3)),
                 ],
             },
             Term {
                 values: vec![
-                    Value::Variable("d1".into()),
+                    Value::Variable("d".into()),
+                    Value::Basis(BasisIndex(2)),
+                    Value::Basis(BasisIndex(3)),
+                ],
+            },
+            Term {
+                values: vec![
+                    Value::Variable("e".into()),
+                    Value::Basis(BasisIndex(0)),
+                    Value::Basis(BasisIndex(1)),
+                ],
+            },
+            Term {
+                values: vec![
+                    Value::Variable("f".into()),
+                    Value::Basis(BasisIndex(0)),
+                    Value::Basis(BasisIndex(2)),
+                ],
+            },
+            Term {
+                values: vec![
+                    Value::Variable("g".into()),
+                    Value::Basis(BasisIndex(0)),
+                    Value::Basis(BasisIndex(3)),
+                ],
+            },
+            Term {
+                values: vec![
+                    Value::Variable("h".into()),
+                    Value::Basis(BasisIndex(0)),
                     Value::Basis(BasisIndex(1)),
                     Value::Basis(BasisIndex(2)),
+                    Value::Basis(BasisIndex(3)),
                 ],
             },
         ],
@@ -364,33 +417,41 @@ fn main() {
     let b = Expression {
         terms: vec![
             Term {
-                values: vec![Value::Variable("a2".into())],
-            },
-            Term {
                 values: vec![
-                    Value::Variable("b2".into()),
+                    Value::Constant(1), // 1 is point, 0 is normal
+                    Value::Basis(BasisIndex(1)),
                     Value::Basis(BasisIndex(2)),
                     Value::Basis(BasisIndex(3)),
                 ],
             },
             Term {
                 values: vec![
-                    Value::Variable("c2".into()),
+                    Value::Variable("x".into()),
+                    Value::Basis(BasisIndex(0)),
+                    Value::Basis(BasisIndex(3)),
+                    Value::Basis(BasisIndex(2)),
+                ],
+            },
+            Term {
+                values: vec![
+                    Value::Variable("y".into()),
+                    Value::Basis(BasisIndex(0)),
                     Value::Basis(BasisIndex(1)),
                     Value::Basis(BasisIndex(3)),
                 ],
             },
             Term {
                 values: vec![
-                    Value::Variable("d2".into()),
-                    Value::Basis(BasisIndex(1)),
+                    Value::Variable("z".into()),
+                    Value::Basis(BasisIndex(0)),
                     Value::Basis(BasisIndex(2)),
+                    Value::Basis(BasisIndex(1)),
                 ],
             },
         ],
     };
 
-    let expression = a.multiply(&b);
+    let expression = a.reverse().simplify(&basis).multiply(&b).multiply(&a);
     println!("{expression}");
     let expression = expression.simplify(&basis);
     println!("{expression}");
