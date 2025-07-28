@@ -362,8 +362,6 @@ impl Expression {
                 let a_grade = a.bases.len();
                 let b_grade = b.bases.len();
 
-                println!("{a_grade} {b_grade}");
-
                 let a_values = Expression {
                     terms: vec![Term {
                         values: a
@@ -442,6 +440,55 @@ impl Expression {
         }
         Self { terms }
     }
+
+    pub fn dual(&self, basis: &Basis) -> Self {
+        Self {
+            terms: self
+                .split_into_ga_terms()
+                .into_iter()
+                .map(|term| {
+                    let mut new_basis = Term {
+                        values: basis
+                            .bases
+                            .iter()
+                            .enumerate()
+                            .map(|(i, _)| BasisIndex(i))
+                            .filter(|basis| {
+                                term.bases
+                                    .iter()
+                                    .all(|other_basis| basis.0 != other_basis.0)
+                            })
+                            .map(Value::Basis)
+                            .collect::<Vec<_>>(),
+                    }
+                    .simplify(basis);
+                    let term_bases = Term {
+                        values: term
+                            .bases
+                            .into_iter()
+                            .map(Value::Basis)
+                            .chain(new_basis.values.clone())
+                            .collect(),
+                    }
+                    .simplify(basis);
+
+                    if let Value::Constant(-1) = term_bases.values[0] {
+                        new_basis.values.push(Value::Constant(-1));
+                    }
+                    new_basis.values.push(Value::Expression(term.expression));
+                    new_basis
+                })
+                .collect(),
+        }
+    }
+
+    pub fn regressive(&self, other: &Self, basis: &Basis) -> Self {
+        self.dual(basis)
+            .simplify(basis)
+            .wedge(&other.dual(basis).simplify(basis), basis)
+            .simplify(basis)
+            .dual(basis)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -506,12 +553,12 @@ fn main() {
 
     let mut offset = 0;
 
-    let a = Expression::generate_grade(&basis, 2, &mut offset).simplify(&basis);
+    let a = Expression::generate_grade(&basis, 4, &mut offset).simplify(&basis);
     println!("a = {a}");
-    let b = Expression::generate_grade(&basis, 2, &mut offset).simplify(&basis);
+    let b = Expression::generate_grade(&basis, 4, &mut offset).simplify(&basis);
     println!("b = {b}");
 
-    let result = a.wedge(&b, &basis).simplify(&basis);
+    let result = a.regressive(&b, &basis).simplify(&basis);
     println!("result = {result}");
 
     println!();
