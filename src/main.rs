@@ -157,6 +157,17 @@ pub struct Expression {
 }
 
 impl Expression {
+    pub fn add(&self, other: &Self) -> Self {
+        Self {
+            terms: self
+                .terms
+                .iter()
+                .chain(other.terms.iter())
+                .cloned()
+                .collect(),
+        }
+    }
+
     pub fn multiply(&self, other: &Self) -> Self {
         Self {
             terms: vec![Term {
@@ -341,6 +352,96 @@ impl Expression {
                 .collect(),
         }
     }
+
+    pub fn wedge(&self, other: &Self, basis: &Basis) -> Self {
+        let a = self.split_into_ga_terms();
+        let b = other.split_into_ga_terms();
+        let mut terms = vec![];
+        for a in &a {
+            for b in &b {
+                let a_grade = a.bases.len();
+                let b_grade = b.bases.len();
+
+                println!("{a_grade} {b_grade}");
+
+                let a_values = Expression {
+                    terms: vec![Term {
+                        values: a
+                            .bases
+                            .iter()
+                            .cloned()
+                            .map(Value::Basis)
+                            .chain(std::iter::once(Value::Expression(a.expression.clone())))
+                            .collect(),
+                    }],
+                };
+                let b_values = Expression {
+                    terms: vec![Term {
+                        values: b
+                            .bases
+                            .iter()
+                            .cloned()
+                            .map(Value::Basis)
+                            .chain(std::iter::once(Value::Expression(b.expression.clone())))
+                            .collect(),
+                    }],
+                };
+                terms.extend(
+                    a_values
+                        .multiply(&b_values)
+                        .simplify(basis)
+                        .grade_part(a_grade + b_grade)
+                        .simplify(basis)
+                        .terms,
+                );
+            }
+        }
+        Self { terms }
+    }
+
+    pub fn inner(&self, other: &Self, basis: &Basis) -> Self {
+        let a = self.split_into_ga_terms();
+        let b = other.split_into_ga_terms();
+        let mut terms = vec![];
+        for a in &a {
+            for b in &b {
+                let a_grade = a.bases.len();
+                let b_grade = b.bases.len();
+
+                let a_values = Expression {
+                    terms: vec![Term {
+                        values: a
+                            .bases
+                            .iter()
+                            .cloned()
+                            .map(Value::Basis)
+                            .chain(std::iter::once(Value::Expression(a.expression.clone())))
+                            .collect(),
+                    }],
+                };
+                let b_values = Expression {
+                    terms: vec![Term {
+                        values: b
+                            .bases
+                            .iter()
+                            .cloned()
+                            .map(Value::Basis)
+                            .chain(std::iter::once(Value::Expression(b.expression.clone())))
+                            .collect(),
+                    }],
+                };
+                terms.extend(
+                    a_values
+                        .multiply(&b_values)
+                        .simplify(basis)
+                        .grade_part(a_grade.abs_diff(b_grade))
+                        .simplify(basis)
+                        .terms,
+                );
+            }
+        }
+        Self { terms }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -405,16 +506,12 @@ fn main() {
 
     let mut offset = 0;
 
-    let a = Expression::generate_grade(&basis, 3, &mut offset).simplify(&basis);
+    let a = Expression::generate_grade(&basis, 2, &mut offset).simplify(&basis);
     println!("a = {a}");
-    let b = Expression::generate_grade(&basis, 3, &mut offset).simplify(&basis);
+    let b = Expression::generate_grade(&basis, 2, &mut offset).simplify(&basis);
     println!("b = {b}");
 
-    let result = a
-        .multiply(&b)
-        .simplify(&basis)
-        .grade_part(4)
-        .simplify(&basis);
+    let result = a.wedge(&b, &basis).simplify(&basis);
     println!("result = {result}");
 
     println!();
