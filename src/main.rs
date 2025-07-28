@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use std::{
     collections::{HashMap, VecDeque},
     fmt::Display,
@@ -295,6 +296,28 @@ impl Expression {
         });
         terms
     }
+
+    pub fn generate_grade(basis: &Basis, grade: usize, offset: &mut usize) -> Self {
+        Self {
+            terms: basis
+                .bases
+                .iter()
+                .enumerate()
+                .map(|(i, _)| BasisIndex(i))
+                .combinations(grade)
+                .map(|basis| {
+                    assert!(*offset < 26);
+
+                    let mut values = basis.into_iter().map(Value::Basis).collect::<Vec<_>>();
+                    values.push(Value::Variable(String::from(
+                        (b'a' + *offset as u8) as char,
+                    )));
+                    *offset += 1;
+                    Term { values }
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -353,112 +376,23 @@ fn main() {
             SquaresTo::PositiveOne,
             SquaresTo::PositiveOne,
             SquaresTo::PositiveOne,
+            SquaresTo::PositiveOne,
         ],
     };
 
-    let a = Expression {
-        terms: vec![
-            Term {
-                values: vec![Value::Variable("a".into())],
-            },
-            Term {
-                values: vec![
-                    Value::Variable("b".into()),
-                    Value::Basis(BasisIndex(1)),
-                    Value::Basis(BasisIndex(2)),
-                ],
-            },
-            Term {
-                values: vec![
-                    Value::Variable("c".into()),
-                    Value::Basis(BasisIndex(1)),
-                    Value::Basis(BasisIndex(3)),
-                ],
-            },
-            Term {
-                values: vec![
-                    Value::Variable("d".into()),
-                    Value::Basis(BasisIndex(2)),
-                    Value::Basis(BasisIndex(3)),
-                ],
-            },
-            Term {
-                values: vec![
-                    Value::Variable("e".into()),
-                    Value::Basis(BasisIndex(0)),
-                    Value::Basis(BasisIndex(1)),
-                ],
-            },
-            Term {
-                values: vec![
-                    Value::Variable("f".into()),
-                    Value::Basis(BasisIndex(0)),
-                    Value::Basis(BasisIndex(2)),
-                ],
-            },
-            Term {
-                values: vec![
-                    Value::Variable("g".into()),
-                    Value::Basis(BasisIndex(0)),
-                    Value::Basis(BasisIndex(3)),
-                ],
-            },
-            Term {
-                values: vec![
-                    Value::Variable("h".into()),
-                    Value::Basis(BasisIndex(0)),
-                    Value::Basis(BasisIndex(1)),
-                    Value::Basis(BasisIndex(2)),
-                    Value::Basis(BasisIndex(3)),
-                ],
-            },
-        ],
-    };
-    let b = Expression {
-        terms: vec![
-            Term {
-                values: vec![
-                    Value::Constant(1), // 1 is point, 0 is normal
-                    Value::Basis(BasisIndex(1)),
-                    Value::Basis(BasisIndex(2)),
-                    Value::Basis(BasisIndex(3)),
-                ],
-            },
-            Term {
-                values: vec![
-                    Value::Variable("x".into()),
-                    Value::Basis(BasisIndex(0)),
-                    Value::Basis(BasisIndex(3)),
-                    Value::Basis(BasisIndex(2)),
-                ],
-            },
-            Term {
-                values: vec![
-                    Value::Variable("y".into()),
-                    Value::Basis(BasisIndex(0)),
-                    Value::Basis(BasisIndex(1)),
-                    Value::Basis(BasisIndex(3)),
-                ],
-            },
-            Term {
-                values: vec![
-                    Value::Variable("z".into()),
-                    Value::Basis(BasisIndex(0)),
-                    Value::Basis(BasisIndex(2)),
-                    Value::Basis(BasisIndex(1)),
-                ],
-            },
-        ],
-    };
+    let mut offset = 0;
 
-    let expression = a.reverse().simplify(&basis).multiply(&b).multiply(&a);
-    println!("{expression}");
-    let expression = expression.simplify(&basis);
-    println!("{expression}");
+    let a = Expression::generate_grade(&basis, 3, &mut offset);
+    println!("a = {a}");
+    let b = Expression::generate_grade(&basis, 3, &mut offset);
+    println!("b = {b}");
+
+    let result = a.multiply(&b).simplify(&basis);
+    println!("result = {result}");
 
     println!();
 
-    let ga_terms = expression.split_into_ga_terms();
+    let ga_terms = result.split_into_ga_terms();
     for ga_term in &ga_terms {
         for basis in &ga_term.bases {
             print!("e{}*", basis.0);
