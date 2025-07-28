@@ -318,6 +318,29 @@ impl Expression {
                 .collect(),
         }
     }
+
+    pub fn grade_part(&self, grade: usize) -> Expression {
+        Self {
+            terms: self
+                .split_into_ga_terms()
+                .into_iter()
+                .filter_map(|term| {
+                    if term.bases.len() != grade {
+                        return None;
+                    }
+
+                    Some(Term {
+                        values: term
+                            .bases
+                            .into_iter()
+                            .map(Value::Basis)
+                            .chain(std::iter::once(Value::Expression(term.expression)))
+                            .collect(),
+                    })
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -382,12 +405,16 @@ fn main() {
 
     let mut offset = 0;
 
-    let a = Expression::generate_grade(&basis, 3, &mut offset);
+    let a = Expression::generate_grade(&basis, 3, &mut offset).simplify(&basis);
     println!("a = {a}");
-    let b = Expression::generate_grade(&basis, 3, &mut offset);
+    let b = Expression::generate_grade(&basis, 3, &mut offset).simplify(&basis);
     println!("b = {b}");
 
-    let result = a.multiply(&b).simplify(&basis);
+    let result = a
+        .multiply(&b)
+        .simplify(&basis)
+        .grade_part(4)
+        .simplify(&basis);
     println!("result = {result}");
 
     println!();
