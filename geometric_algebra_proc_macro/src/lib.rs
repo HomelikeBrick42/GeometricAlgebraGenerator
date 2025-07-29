@@ -7,6 +7,7 @@ struct PgaInput {
     dimension: isize,
     type_: Type,
     multivector: bool,
+    n_vectors: bool,
 }
 
 mod kw {
@@ -14,6 +15,7 @@ mod kw {
 
     custom_keyword!(dimension);
     custom_keyword!(multivector);
+    custom_keyword!(n_vectors);
 }
 
 impl Parse for PgaInput {
@@ -33,20 +35,39 @@ impl Parse for PgaInput {
         let multivector = input.parse::<LitBool>()?.value;
         input.parse::<Token![;]>()?;
 
+        input.parse::<kw::n_vectors>()?;
+        input.parse::<Token![=]>()?;
+        let n_vectors = input.parse::<LitBool>()?.value;
+        input.parse::<Token![;]>()?;
+
         Ok(PgaInput {
             dimension,
             type_,
             multivector,
+            n_vectors,
         })
     }
 }
 
 #[proc_macro]
 pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let names = [
+        format_ident!("Vector"),
+        format_ident!("Bivector"),
+        format_ident!("Trivector"),
+        format_ident!("Quadvector"),
+        format_ident!("Pentavector"),
+        format_ident!("Hexavector"),
+        format_ident!("Heptavector"),
+        format_ident!("Octavector"),
+        format_ident!("Nonavector"),
+    ];
+
     let PgaInput {
         dimension,
         type_,
         multivector,
+        n_vectors,
     } = parse_macro_input!(tokens as PgaInput);
 
     if dimension < 0 {
@@ -69,7 +90,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             .collect(),
     };
 
-    let multivector = if multivector {
+    let multivector_tokens = if multivector {
         let mut multivector_terms = Expression { terms: vec![] };
 
         let mut multivector_members = vec![];
@@ -208,7 +229,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             });
         }
 
-        quote! {
+        Some(quote! {
             pub struct Multivector {
                 #(#multivector_members: #type_,)*
             }
@@ -318,13 +339,78 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     #negation_impl
                 }
             }
-        }
+        })
     } else {
-        quote! {}
+        None
+    };
+
+    let n_vectors_tokens = if n_vectors {
+        let point = if let Some(index) = (basis.bases.len() - 1).checked_sub(1) {
+            let name = &names[index];
+            Some(quote! { pub type Point = #name; })
+        } else {
+            None
+        };
+        let line = if let Some(index) = (basis.bases.len() - 1).checked_sub(2) {
+            let name = &names[index];
+            Some(quote! { pub type Line = #name; })
+        } else {
+            None
+        };
+        let plane = if let Some(index) = (basis.bases.len() - 1).checked_sub(3) {
+            let name = &names[index];
+            Some(quote! { pub type Plane = #name; })
+        } else {
+            None
+        };
+        let hyperplane = if let Some(index) = (basis.bases.len() - 1).checked_sub(4) {
+            let name = &names[index];
+            Some(quote! { pub type Hyperplane = #name; })
+        } else {
+            None
+        };
+
+        let mut n_vectors = Vec::with_capacity(basis.bases.len());
+        for n in 1..=basis.bases.len() {
+            let mut n_vector_terms = Expression { terms: vec![] };
+
+            let mut n_vector_members = vec![];
+            {
+                let terms = Expression::generate_grade(&basis, n, &mut 0).split_into_ga_terms();
+                n_vector_members.extend(field_names(
+                    terms.iter().map(|term| term.bases.iter().cloned()),
+                ));
+                for term in terms {
+                    n_vector_terms.terms.push(Term {
+                        values: term.bases.iter().copied().map(Value::Basis).collect(),
+                    });
+                }
+            }
+
+            let name = &names[n - 1];
+            n_vectors.push(quote! {
+                pub struct #name {
+                    #(#n_vector_members: #type_,)*
+                }
+            });
+        }
+
+        Some(quote! {
+            #point
+            #line
+            #plane
+            #hyperplane
+
+            #(#n_vectors)*
+        })
+    } else {
+        None
     };
 
     quote! {
-        #multivector
+        #multivector_tokens
+
+        #n_vectors_tokens
     }
     .into()
 }
