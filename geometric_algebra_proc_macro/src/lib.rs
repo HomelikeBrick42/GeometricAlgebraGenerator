@@ -91,6 +91,34 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             &type_,
         );
 
+        let inner_impl = operation_body(
+            &multivector_terms,
+            format_ident!("self"),
+            &multivector_terms,
+            format_ident!("other"),
+            |a, b, basis| a.inner(b, basis),
+            &basis,
+            &type_,
+        );
+        let wedge_impl = operation_body(
+            &multivector_terms,
+            format_ident!("self"),
+            &multivector_terms,
+            format_ident!("other"),
+            |a, b, basis| a.wedge(b, basis),
+            &basis,
+            &type_,
+        );
+        let regressive_impl = operation_body(
+            &multivector_terms,
+            format_ident!("self"),
+            &multivector_terms,
+            format_ident!("other"),
+            |a, b, basis| a.regressive(b, basis),
+            &basis,
+            &type_,
+        );
+
         quote! {
             pub struct Multivector {
                 #(#multivector_members: #type_,)*
@@ -108,6 +136,18 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         s: <#type_ as ::core::convert::From<i8>>::from(1),
                         ..Self::zero()
                     }
+                }
+
+                pub fn inner(self, other: Self) -> Self {
+                    #inner_impl
+                }
+
+                pub fn wedge(self, other: Self) -> Self {
+                    #wedge_impl
+                }
+
+                pub fn regressive(self, other: Self) -> Self {
+                    #regressive_impl
                 }
             }
 
