@@ -168,18 +168,47 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             &type_,
         );
 
+        let mut grade_parts = vec![];
+        let mut grade_part_branches = vec![];
+        for i in 0..=basis.bases.len() {
+            let name = format_ident!("grade{i}");
+
+            let imp = unary_operation_body(
+                &multivector_terms,
+                format_ident!("self"),
+                |a, _| a.grade_part(i),
+                &basis,
+                &type_,
+            );
+
+            grade_parts.push(quote! {
+                #[inline]
+                #[must_use]
+                pub fn #name(self) -> Self {
+                    #imp
+                }
+            });
+            grade_part_branches.push(quote! {
+                #i => self.#name()
+            });
+        }
+
         quote! {
             pub struct Multivector {
                 #(#multivector_members: #type_,)*
             }
 
             impl Multivector {
+                #[inline]
+                #[must_use]
                 pub fn zero() -> Self {
                     Self {
                         #(#multivector_members: <#type_ as ::core::convert::From<i8>>::from(0),)*
                     }
                 }
 
+                #[inline]
+                #[must_use]
                 pub fn one() -> Self {
                     Self {
                         s: <#type_ as ::core::convert::From<i8>>::from(1),
@@ -187,34 +216,59 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     }
                 }
 
+                #[inline]
+                #[must_use]
                 pub fn inner(self, other: Self) -> Self {
                     #inner_impl
                 }
 
+                #[inline]
+                #[must_use]
                 pub fn wedge(self, other: Self) -> Self {
                     #wedge_impl
                 }
 
+                #[inline]
+                #[must_use]
                 pub fn regressive(self, other: Self) -> Self {
                     #regressive_impl
                 }
 
+                #[inline]
+                #[must_use]
                 pub fn reverse(self) -> Self {
                     #reverse_impl
                 }
 
+                #[inline]
+                #[must_use]
                 pub fn dual(self) -> Self {
                     #dual_impl
                 }
 
+                #[inline]
+                #[must_use]
                 pub fn dual_inverse(self) -> Self {
                     #dual_inverse_impl
                 }
+
+                #[inline]
+                #[must_use]
+                pub fn grade_part(self, grade: usize) -> Self {
+                    match grade {
+                        #(#grade_part_branches,)*
+                        _ => Self::zero(),
+                    }
+                }
+
+                #(#grade_parts)*
             }
 
             impl ::core::ops::Add<Self> for Multivector {
                 type Output = Self;
 
+                #[inline]
+                #[must_use]
                 fn add(self, other: Self) -> Self::Output {
                     #add_impl
                 }
@@ -223,6 +277,8 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             impl ::core::ops::Sub<Self> for Multivector {
                 type Output = Self;
 
+                #[inline]
+                #[must_use]
                 fn sub(self, other: Self) -> Self::Output {
                     #sub_impl
                 }
@@ -231,6 +287,8 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             impl ::core::ops::Mul<Self> for Multivector {
                 type Output = Self;
 
+                #[inline]
+                #[must_use]
                 fn mul(self, other: Self) -> Self::Output {
                     #mul_impl
                 }
@@ -239,6 +297,8 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             impl ::core::ops::Neg for Multivector {
                 type Output = Self;
 
+                #[inline]
+                #[must_use]
                 fn neg(self) -> Self::Output {
                     #negation_impl
                 }
@@ -291,9 +351,12 @@ fn unary_operation_body(
         let Self {
             #(#a_field_names: #a_fields,)*
         } = #a_name;
-        Self {
+        #[allow(clippy::needless_update)]
+        let result = Self {
             #(#result_field_names: #result_expressions,)*
-        }
+            ..Self::zero()
+        };
+        result
     }
 }
 
@@ -366,9 +429,12 @@ fn binary_operation_body(
         let Self {
             #(#b_field_names: #b_fields,)*
         } = #b_name;
-        Self {
+        #[allow(clippy::needless_update)]
+        let result = Self {
             #(#result_field_names: #result_expressions,)*
-        }
+            ..Self::zero()
+        };
+        result
     }
 }
 
