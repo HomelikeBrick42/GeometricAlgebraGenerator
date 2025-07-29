@@ -174,7 +174,8 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 pub fn one() -> Self {
                     Self {
-                        #(#multivector_members: <#type_ as ::core::convert::From<i8>>::from(1),)*
+                        s: <#type_ as ::core::convert::From<i8>>::from(1),
+                        ..Self::zero()
                     }
                 }
             }
