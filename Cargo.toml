@@ -1,7 +1,17 @@
+[workspace]
+resolver = "3"
+members = ["geometric_algebra", "geometric_algebra_proc_macro"]
+
+[workspace.dependencies]
+geometric_algebra = { path = "./geometric_algebra", version = "0.1.0" }
+geometric_algebra_proc_macro = { path = "./geometric_algebra_proc_macro", version = "0.1.0" }
+
 [package]
 name = "ga_generator"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-itertools = "0.14.0"
+geometric_algebra = { workspace = true }
+geometric_algebra_proc_macro = { workspace = true }
+syn = { version = "2.0.104", features = ["full"] }
