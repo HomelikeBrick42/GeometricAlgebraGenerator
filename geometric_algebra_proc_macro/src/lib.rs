@@ -58,6 +58,20 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
         n_vectors,
     } = parse_macro_input!(tokens as PgaInput);
 
+    if dimension < 0 {
+        return quote! {
+            compile_error!("Dimension number cannot be less than 0");
+        }
+        .into();
+    }
+    let dimension = dimension as usize;
+    if dimension > 9 {
+        return quote! {
+            compile_error!("PGA dimensions greater than 9 are currently not supported");
+        }
+        .into();
+    }
+
     let grade_types = [
         quote! { #type_ },
         {
@@ -110,19 +124,10 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
         "nonavector",
     ];
 
-    if dimension < 0 {
-        return quote! {
-            compile_error!("Dimension number cannot be less than 0");
-        }
-        .into();
-    }
-    let dimension = dimension as usize;
-    if dimension > 9 {
-        return quote! {
-            compile_error!("PGA dimensions greater than 9 are currently not supported");
-        }
-        .into();
-    }
+    let function_attributes = quote! {
+        #[inline]
+        #[must_use]
+    };
 
     let basis = Basis {
         bases: std::iter::once(SquaresTo::Zero)
@@ -258,8 +263,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             );
 
             grade_parts.push(quote! {
-                #[inline]
-                #[must_use]
+                #function_attributes
                 pub fn #name(self) -> Self {
                     #imp
                 }
@@ -334,8 +338,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 let pattern = &parts[index];
                 from_parts.push(quote! {
-                    #[inline]
-                    #[must_use]
+                    #function_attributes
                     pub fn #from_name(part: #grade_type) -> Self {
                         let #pattern = part;
                         Self {
@@ -344,8 +347,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         }
                     }
 
-                    #[inline]
-                    #[must_use]
+                    #function_attributes
                     pub fn #into_name(self) -> #grade_type {
                         let Self {
                             #(#self_field_names,)*
@@ -358,8 +360,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             Some(quote! {
                 #(#from_parts)*
 
-                #[inline]
-                #[must_use]
+                #function_attributes
                 pub fn into_grades(self) -> (#(#grade_types,)*) {
                     let Self {
                         #(#self_field_names,)*
@@ -377,16 +378,14 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
 
             impl Multivector {
-                #[inline]
-                #[must_use]
+                #function_attributes
                 pub fn zero() -> Self {
                     Self {
                         #(#multivector_members: <#type_ as ::core::convert::From<i8>>::from(0),)*
                     }
                 }
 
-                #[inline]
-                #[must_use]
+                #function_attributes
                 pub fn one() -> Self {
                     Self {
                         s: <#type_ as ::core::convert::From<i8>>::from(1),
@@ -396,44 +395,37 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 #split_into_parts
 
-                #[inline]
-                #[must_use]
+                #function_attributes
                 pub fn inner(self, other: Self) -> Self {
                     #inner_impl
                 }
 
-                #[inline]
-                #[must_use]
+                #function_attributes
                 pub fn wedge(self, other: Self) -> Self {
                     #wedge_impl
                 }
 
-                #[inline]
-                #[must_use]
+                #function_attributes
                 pub fn regressive(self, other: Self) -> Self {
                     #regressive_impl
                 }
 
-                #[inline]
-                #[must_use]
+                #function_attributes
                 pub fn reverse(self) -> Self {
                     #reverse_impl
                 }
 
-                #[inline]
-                #[must_use]
+                #function_attributes
                 pub fn dual(self) -> Self {
                     #dual_impl
                 }
 
-                #[inline]
-                #[must_use]
+                #function_attributes
                 pub fn dual_inverse(self) -> Self {
                     #dual_inverse_impl
                 }
 
-                #[inline]
-                #[must_use]
+                #function_attributes
                 pub fn grade_part(self, grade: usize) -> Self {
                     match grade {
                         #(#grade_part_branches,)*
@@ -447,8 +439,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             impl ::core::ops::Add<Self> for Multivector {
                 type Output = Self;
 
-                #[inline]
-                #[must_use]
+                #function_attributes
                 fn add(self, other: Self) -> Self::Output {
                     #add_impl
                 }
@@ -457,8 +448,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             impl ::core::ops::Sub<Self> for Multivector {
                 type Output = Self;
 
-                #[inline]
-                #[must_use]
+                #function_attributes
                 fn sub(self, other: Self) -> Self::Output {
                     #sub_impl
                 }
@@ -467,8 +457,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             impl ::core::ops::Mul<Self> for Multivector {
                 type Output = Self;
 
-                #[inline]
-                #[must_use]
+                #function_attributes
                 fn mul(self, other: Self) -> Self::Output {
                     #mul_impl
                 }
@@ -477,8 +466,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             impl ::core::ops::Neg for Multivector {
                 type Output = Self;
 
-                #[inline]
-                #[must_use]
+                #function_attributes
                 fn neg(self) -> Self::Output {
                     #negation_impl
                 }
