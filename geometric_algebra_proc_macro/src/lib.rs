@@ -1,17 +1,19 @@
 use geometric_algebra::{Basis, BasisIndex, Expression, SquaresTo, Term, Value};
 use proc_macro2::{Span, TokenStream};
 use quote::{TokenStreamExt, format_ident, quote};
-use syn::{Ident, LitInt, Token, Type, parse::Parse, parse_macro_input};
+use syn::{Ident, LitBool, LitInt, Token, Type, parse::Parse, parse_macro_input};
 
 struct PgaInput {
     dimension: isize,
     type_: Type,
+    multivector: bool,
 }
 
 mod kw {
     use syn::custom_keyword;
 
     custom_keyword!(dimension);
+    custom_keyword!(multivector);
 }
 
 impl Parse for PgaInput {
@@ -26,13 +28,26 @@ impl Parse for PgaInput {
         let dimension = input.parse::<LitInt>()?.base10_parse()?;
         input.parse::<Token![;]>()?;
 
-        Ok(PgaInput { dimension, type_ })
+        input.parse::<kw::multivector>()?;
+        input.parse::<Token![=]>()?;
+        let multivector = input.parse::<LitBool>()?.value;
+        input.parse::<Token![;]>()?;
+
+        Ok(PgaInput {
+            dimension,
+            type_,
+            multivector,
+        })
     }
 }
 
 #[proc_macro]
 pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let PgaInput { dimension, type_ } = parse_macro_input!(tokens as PgaInput);
+    let PgaInput {
+        dimension,
+        type_,
+        multivector,
+    } = parse_macro_input!(tokens as PgaInput);
 
     if dimension < 0 {
         return quote! {
@@ -54,7 +69,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             .collect(),
     };
 
-    let multivector = {
+    let multivector = if multivector {
         let mut multivector_terms = Expression { terms: vec![] };
 
         let mut multivector_members = vec![];
@@ -304,6 +319,8 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 }
             }
         }
+    } else {
+        quote! {}
     };
 
     quote! {
