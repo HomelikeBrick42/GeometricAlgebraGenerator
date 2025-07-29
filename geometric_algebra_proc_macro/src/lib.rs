@@ -133,6 +133,13 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             &type_,
         );
 
+        let reverse_impl = unary_operation_body(
+            &multivector_terms,
+            format_ident!("self"),
+            |a, _| a.reverse(),
+            &basis,
+            &type_,
+        );
         let dual_impl = unary_operation_body(
             &multivector_terms,
             format_ident!("self"),
@@ -177,6 +184,10 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 pub fn regressive(self, other: Self) -> Self {
                     #regressive_impl
+                }
+
+                pub fn reverse(self) -> Self {
+                    #reverse_impl
                 }
 
                 pub fn dual(self) -> Self {
