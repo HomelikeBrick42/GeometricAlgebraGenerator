@@ -8,11 +8,24 @@ struct PgaInput {
     type_: Type,
 }
 
+mod kw {
+    use syn::custom_keyword;
+
+    custom_keyword!(dimension);
+}
+
 impl Parse for PgaInput {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let dimension = input.parse::<LitInt>()?.base10_parse()?;
-        input.parse::<Token![,]>()?;
+        input.parse::<Token![type]>()?;
+        input.parse::<Token![=]>()?;
         let type_ = input.parse()?;
+        input.parse::<Token![;]>()?;
+
+        input.parse::<kw::dimension>()?;
+        input.parse::<Token![=]>()?;
+        let dimension = input.parse::<LitInt>()?.base10_parse()?;
+        input.parse::<Token![;]>()?;
+
         Ok(PgaInput { dimension, type_ })
     }
 }
