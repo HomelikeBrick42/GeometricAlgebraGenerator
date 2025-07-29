@@ -51,24 +51,64 @@ impl Parse for PgaInput {
 
 #[proc_macro]
 pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let names = [
-        format_ident!("Vector"),
-        format_ident!("Bivector"),
-        format_ident!("Trivector"),
-        format_ident!("Quadvector"),
-        format_ident!("Pentavector"),
-        format_ident!("Hexavector"),
-        format_ident!("Heptavector"),
-        format_ident!("Octavector"),
-        format_ident!("Nonavector"),
-    ];
-
     let PgaInput {
         dimension,
         type_,
         multivector,
         n_vectors,
     } = parse_macro_input!(tokens as PgaInput);
+
+    let grade_types = [
+        quote! { #type_ },
+        {
+            let ident = format_ident!("Vector");
+            quote! { #ident }
+        },
+        {
+            let ident = format_ident!("Bivector");
+            quote! { #ident }
+        },
+        {
+            let ident = format_ident!("Trivector");
+            quote! { #ident }
+        },
+        {
+            let ident = format_ident!("Quadvector");
+            quote! { #ident }
+        },
+        {
+            let ident = format_ident!("Pentavector");
+            quote! { #ident }
+        },
+        {
+            let ident = format_ident!("Hexavector");
+            quote! { #ident }
+        },
+        {
+            let ident = format_ident!("Heptavector");
+            quote! { #ident }
+        },
+        {
+            let ident = format_ident!("Octavector");
+            quote! { #ident }
+        },
+        {
+            let ident = format_ident!("Nonavector");
+            quote! { #ident }
+        },
+    ];
+    let grade_names = [
+        "scalar",
+        "vector",
+        "bivector",
+        "trivector",
+        "quadvector",
+        "pentavector",
+        "hexavector",
+        "heptavector",
+        "octavector",
+        "nonavector",
+    ];
 
     if dimension < 0 {
         return quote! {
@@ -229,6 +269,108 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             });
         }
 
+        let split_into_parts = if n_vectors {
+            let grade_types = &grade_types[..=basis.bases.len()];
+
+            let mut parts = vec![];
+            #[allow(clippy::needless_range_loop)]
+            for index in 0..grade_types.len() {
+                let grade_type = &grade_types[index];
+
+                let fields = field_names(multivector_terms.grade_part(index).terms.iter().map(
+                    |term| {
+                        term.values.iter().filter_map(|value| {
+                            let Value::Basis(base) = *value else {
+                                return None;
+                            };
+                            Some(base)
+                        })
+                    },
+                ))
+                .collect::<Vec<_>>();
+
+                if index > 0 {
+                    parts.push(quote! {
+                        #grade_type {
+                            #(#fields,)*
+                        }
+                    });
+                } else {
+                    parts.push(quote! {
+                        #(#fields)*
+                    });
+                }
+            }
+
+            let self_field_names = field_names(multivector_terms.terms.iter().map(|term| {
+                term.values.iter().filter_map(|value| {
+                    let Value::Basis(base) = *value else {
+                        return None;
+                    };
+                    Some(base)
+                })
+            }))
+            .collect::<Vec<_>>();
+
+            let mut from_parts = vec![];
+            #[allow(clippy::needless_range_loop)]
+            for index in 0..grade_types.len() {
+                let grade_type = &grade_types[index];
+
+                let from_name = format_ident!("from_{}", grade_names[index]);
+                let into_name = format_ident!("into_{}", grade_names[index]);
+
+                let fields = field_names(multivector_terms.grade_part(index).terms.iter().map(
+                    |term| {
+                        term.values.iter().filter_map(|value| {
+                            let Value::Basis(base) = *value else {
+                                return None;
+                            };
+                            Some(base)
+                        })
+                    },
+                ))
+                .collect::<Vec<_>>();
+
+                let pattern = &parts[index];
+                from_parts.push(quote! {
+                    #[inline]
+                    #[must_use]
+                    pub fn #from_name(part: #grade_type) -> Self {
+                        let #pattern = part;
+                        Self {
+                            #(#fields,)*
+                            ..Self::zero()
+                        }
+                    }
+
+                    #[inline]
+                    #[must_use]
+                    pub fn #into_name(self) -> #grade_type {
+                        let Self {
+                            #(#self_field_names,)*
+                        } = self;
+                        #pattern
+                    }
+                });
+            }
+
+            Some(quote! {
+                #(#from_parts)*
+
+                #[inline]
+                #[must_use]
+                pub fn into_grades(self) -> (#(#grade_types,)*) {
+                    let Self {
+                        #(#self_field_names,)*
+                    } = self;
+                    (#(#parts,)*)
+                }
+            })
+        } else {
+            None
+        };
+
         Some(quote! {
             pub struct Multivector {
                 #(#multivector_members: #type_,)*
@@ -251,6 +393,8 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         ..Self::zero()
                     }
                 }
+
+                #split_into_parts
 
                 #[inline]
                 #[must_use]
@@ -345,32 +489,33 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     };
 
     let n_vectors_tokens = if n_vectors {
-        let point = if let Some(index) = (basis.bases.len() - 1).checked_sub(1) {
-            let name = &names[index];
+        let point = if let index @ 1.. = basis.bases.len().saturating_sub(1) {
+            let name = &grade_types[index];
             Some(quote! { pub type Point = #name; })
         } else {
             None
         };
-        let line = if let Some(index) = (basis.bases.len() - 1).checked_sub(2) {
-            let name = &names[index];
+        let line = if let index @ 1.. = basis.bases.len().saturating_sub(2) {
+            let name = &grade_types[index];
             Some(quote! { pub type Line = #name; })
         } else {
             None
         };
-        let plane = if let Some(index) = (basis.bases.len() - 1).checked_sub(3) {
-            let name = &names[index];
+        let plane = if let index @ 1.. = basis.bases.len().saturating_sub(3) {
+            let name = &grade_types[index];
             Some(quote! { pub type Plane = #name; })
         } else {
             None
         };
-        let hyperplane = if let Some(index) = (basis.bases.len() - 1).checked_sub(4) {
-            let name = &names[index];
+        let hyperplane = if let index @ 1.. = basis.bases.len().saturating_sub(4) {
+            let name = &grade_types[index];
             Some(quote! { pub type Hyperplane = #name; })
         } else {
             None
         };
 
         let mut n_vectors = Vec::with_capacity(basis.bases.len());
+        #[allow(clippy::needless_range_loop)]
         for n in 1..=basis.bases.len() {
             let mut n_vector_terms = Expression { terms: vec![] };
 
@@ -387,7 +532,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 }
             }
 
-            let name = &names[n - 1];
+            let name = &grade_types[n];
             n_vectors.push(quote! {
                 pub struct #name {
                     #(#n_vector_members: #type_,)*
