@@ -1,7 +1,7 @@
-use geometric_algebra::{Basis, Expression, SquaresTo, Term, Value};
+use geometric_algebra::{Basis, BasisIndex, Expression, SquaresTo, Term, Value};
 use proc_macro2::{Span, TokenStream};
 use quote::{TokenStreamExt, format_ident, quote};
-use syn::{LitInt, Token, Type, parse::Parse, parse_macro_input};
+use syn::{Ident, LitInt, Token, Type, parse::Parse, parse_macro_input};
 
 struct PgaInput {
     dimension: isize,
@@ -47,118 +47,49 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
         let mut multivector_members = vec![];
         for i in 0..=basis.bases.len() {
             let terms = Expression::generate_grade(&basis, i, &mut 0).split_into_ga_terms();
+            multivector_members.extend(field_names(
+                terms.iter().map(|term| term.bases.iter().cloned()),
+            ));
             for term in terms {
                 multivector_terms.terms.push(Term {
                     values: term.bases.iter().copied().map(Value::Basis).collect(),
                 });
-                let name = match term.bases.len() {
-                    0 => format_ident!("s"),
-                    _ => {
-                        let mut s = String::with_capacity(term.bases.len());
-                        for base in term.bases {
-                            s.push(char::from_digit(base.0 as _, 10).unwrap());
-                        }
-                        format_ident!("e{}", s)
-                    }
-                };
-                multivector_members.push(quote! { #name });
             }
         }
 
-        let mul_impl = {
-            let mut self_fields = vec![];
-            let mut other_fields = vec![];
-
-            let mut index = 0usize;
-            let mut self_expr = multivector_terms.simplify(&basis);
-            for term in &mut self_expr.terms {
-                let field_name = match term.values.len() {
-                    0 => format_ident!("s"),
-                    _ => {
-                        let mut s = String::with_capacity(term.values.len());
-                        for base in &term.values {
-                            let Value::Basis(base) = base else {
-                                unreachable!()
-                            };
-                            s.push(char::from_digit(base.0 as _, 10).unwrap());
-                        }
-                        format_ident!("e{}", s)
-                    }
-                };
-
-                let variable_name = format_ident!("_{index}");
-                self_fields.push(quote! { #field_name: #variable_name });
-
-                let variable_name = format!("_{index}");
-                term.values.push(Value::Variable(variable_name));
-                index += 1;
-            }
-
-            let mut other_expr = multivector_terms.simplify(&basis);
-            for term in &mut other_expr.terms {
-                let field_name = match term.values.len() {
-                    0 => format_ident!("s"),
-                    _ => {
-                        let mut s = String::with_capacity(term.values.len());
-                        for base in &term.values {
-                            let Value::Basis(base) = base else {
-                                unreachable!()
-                            };
-                            s.push(char::from_digit(base.0 as _, 10).unwrap());
-                        }
-                        format_ident!("e{}", s)
-                    }
-                };
-
-                let variable_name = format_ident!("_{index}");
-                other_fields.push(quote! { #field_name: #variable_name });
-
-                let variable_name = format!("_{index}");
-                term.values.push(Value::Variable(variable_name));
-                index += 1;
-            }
-
-            let result = self_expr
-                .multiply(&other_expr)
-                .simplify(&basis)
-                .split_into_ga_terms();
-
-            let mut result_terms = vec![];
-            for term in result {
-                let field_name = match term.bases.len() {
-                    0 => format_ident!("s"),
-                    _ => {
-                        let mut s = String::with_capacity(term.bases.len());
-                        for base in term.bases {
-                            s.push(char::from_digit(base.0 as _, 10).unwrap());
-                        }
-                        format_ident!("e{}", s)
-                    }
-                };
-
-                let expression = expression_to_tokens(&term.expression, &type_);
-
-                result_terms.push(quote! { #field_name: #expression });
-            }
-
-            quote! {
-                impl ::core::ops::Mul<Self> for Multivector {
-                    type Output = Self;
-
-                    fn mul(self, other: Self) -> Self::Output {
-                        let Self {
-                            #(#self_fields,)*
-                        } = self;
-                        let Self {
-                            #(#other_fields,)*
-                        } = other;
-                        Self {
-                            #(#result_terms,)*
-                        }
-                    }
-                }
-            }
-        };
+        let add_impl = operation_body(
+            &multivector_terms,
+            format_ident!("self"),
+            &multivector_terms,
+            format_ident!("other"),
+            |a, b, _| a.add(b),
+            &basis,
+            &type_,
+        );
+        let sub_impl = operation_body(
+            &multivector_terms,
+            format_ident!("self"),
+            &multivector_terms,
+            format_ident!("other"),
+            |a, b, _| {
+                a.add(&b.multiply(&Expression {
+                    terms: vec![Term {
+                        values: vec![Value::Constant(-1)],
+                    }],
+                }))
+            },
+            &basis,
+            &type_,
+        );
+        let mul_impl = operation_body(
+            &multivector_terms,
+            format_ident!("self"),
+            &multivector_terms,
+            format_ident!("other"),
+            |a, b, _| a.multiply(b),
+            &basis,
+            &type_,
+        );
 
         quote! {
             pub struct Multivector {
@@ -180,7 +111,29 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 }
             }
 
-            #mul_impl
+            impl ::core::ops::Add<Self> for Multivector {
+                type Output = Self;
+
+                fn add(self, other: Self) -> Self::Output {
+                    #add_impl
+                }
+            }
+
+            impl ::core::ops::Sub<Self> for Multivector {
+                type Output = Self;
+
+                fn sub(self, other: Self) -> Self::Output {
+                    #sub_impl
+                }
+            }
+
+            impl ::core::ops::Mul<Self> for Multivector {
+                type Output = Self;
+
+                fn mul(self, other: Self) -> Self::Output {
+                    #mul_impl
+                }
+            }
         }
     };
 
@@ -188,6 +141,96 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
         #multivector
     }
     .into()
+}
+
+fn operation_body(
+    a: &Expression,
+    a_name: Ident,
+    b: &Expression,
+    b_name: Ident,
+    op: impl FnOnce(&Expression, &Expression, &Basis) -> Expression,
+    basis: &Basis,
+    type_: &Type,
+) -> TokenStream {
+    let mut index = 0usize;
+
+    let mut a_expr = a.simplify(basis);
+    let a_field_names = field_names(a_expr.terms.iter().map(|term| {
+        term.values.iter().filter_map(|value| {
+            let Value::Basis(base) = *value else {
+                return None;
+            };
+            Some(base)
+        })
+    }))
+    .collect::<Vec<_>>();
+    let mut a_fields = vec![];
+    for term in &mut a_expr.terms {
+        let variable_name = format_ident!("_{index}");
+        a_fields.push(quote! { #variable_name });
+
+        let variable_name = format!("_{index}");
+        term.values.push(Value::Variable(variable_name));
+        index += 1;
+    }
+
+    let mut b_expr = b.simplify(basis);
+    let b_field_names = field_names(b_expr.terms.iter().map(|term| {
+        term.values.iter().filter_map(|value| {
+            let Value::Basis(base) = *value else {
+                return None;
+            };
+            Some(base)
+        })
+    }))
+    .collect::<Vec<_>>();
+    let mut b_fields = vec![];
+    for term in &mut b_expr.terms {
+        let variable_name = format_ident!("_{index}");
+        b_fields.push(quote! { #variable_name });
+
+        let variable_name = format!("_{index}");
+        term.values.push(Value::Variable(variable_name));
+        index += 1;
+    }
+
+    let result = op(&a_expr, &b_expr, basis)
+        .simplify(basis)
+        .split_into_ga_terms();
+
+    let result_field_names =
+        field_names(result.iter().map(|term| term.bases.iter().copied())).collect::<Vec<_>>();
+    let result_expressions = result
+        .iter()
+        .map(|term| expression_to_tokens(&term.expression, type_))
+        .collect::<Vec<_>>();
+
+    quote! {
+        let Self {
+            #(#a_field_names: #a_fields,)*
+        } = #a_name;
+        let Self {
+            #(#b_field_names: #b_fields,)*
+        } = #b_name;
+        Self {
+            #(#result_field_names: #result_expressions,)*
+        }
+    }
+}
+
+fn field_names(
+    terms: impl Iterator<Item: Iterator<Item = BasisIndex>>,
+) -> impl Iterator<Item = Ident> {
+    terms.map(|bases| {
+        let name = bases
+            .map(|base| char::from_digit(base.0 as _, 10).unwrap())
+            .collect::<String>();
+        if name.is_empty() {
+            format_ident!("s")
+        } else {
+            format_ident!("e{name}")
+        }
+    })
 }
 
 fn expression_to_tokens(expression: &Expression, type_: &Type) -> TokenStream {
