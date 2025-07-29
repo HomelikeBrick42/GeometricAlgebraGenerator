@@ -57,7 +57,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        let add_impl = operation_body(
+        let add_impl = binary_operation_body(
             &multivector_terms,
             format_ident!("self"),
             &multivector_terms,
@@ -66,7 +66,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             &basis,
             &type_,
         );
-        let sub_impl = operation_body(
+        let sub_impl = binary_operation_body(
             &multivector_terms,
             format_ident!("self"),
             &multivector_terms,
@@ -81,7 +81,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             &basis,
             &type_,
         );
-        let mul_impl = operation_body(
+        let mul_impl = binary_operation_body(
             &multivector_terms,
             format_ident!("self"),
             &multivector_terms,
@@ -91,7 +91,21 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             &type_,
         );
 
-        let inner_impl = operation_body(
+        let negation_impl = unary_operation_body(
+            &multivector_terms,
+            format_ident!("self"),
+            |a, _| {
+                a.multiply(&Expression {
+                    terms: vec![Term {
+                        values: vec![Value::Constant(-1)],
+                    }],
+                })
+            },
+            &basis,
+            &type_,
+        );
+
+        let inner_impl = binary_operation_body(
             &multivector_terms,
             format_ident!("self"),
             &multivector_terms,
@@ -100,7 +114,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             &basis,
             &type_,
         );
-        let wedge_impl = operation_body(
+        let wedge_impl = binary_operation_body(
             &multivector_terms,
             format_ident!("self"),
             &multivector_terms,
@@ -109,12 +123,27 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             &basis,
             &type_,
         );
-        let regressive_impl = operation_body(
+        let regressive_impl = binary_operation_body(
             &multivector_terms,
             format_ident!("self"),
             &multivector_terms,
             format_ident!("other"),
             |a, b, basis| a.regressive(b, basis),
+            &basis,
+            &type_,
+        );
+
+        let dual_impl = unary_operation_body(
+            &multivector_terms,
+            format_ident!("self"),
+            |a, basis| a.dual(basis),
+            &basis,
+            &type_,
+        );
+        let dual_inverse_impl = unary_operation_body(
+            &multivector_terms,
+            format_ident!("self"),
+            |a, basis| a.dual_inverse(basis),
             &basis,
             &type_,
         );
@@ -149,6 +178,14 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 pub fn regressive(self, other: Self) -> Self {
                     #regressive_impl
                 }
+
+                pub fn dual(self) -> Self {
+                    #dual_impl
+                }
+
+                pub fn dual_inverse(self) -> Self {
+                    #dual_inverse_impl
+                }
             }
 
             impl ::core::ops::Add<Self> for Multivector {
@@ -174,6 +211,14 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     #mul_impl
                 }
             }
+
+            impl ::core::ops::Neg for Multivector {
+                type Output = Self;
+
+                fn neg(self) -> Self::Output {
+                    #negation_impl
+                }
+            }
         }
     };
 
@@ -183,7 +228,52 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     .into()
 }
 
-fn operation_body(
+fn unary_operation_body(
+    a: &Expression,
+    a_name: Ident,
+    op: impl FnOnce(&Expression, &Basis) -> Expression,
+    basis: &Basis,
+    type_: &Type,
+) -> TokenStream {
+    let mut a_expr = a.simplify(basis);
+    let a_field_names = field_names(a_expr.terms.iter().map(|term| {
+        term.values.iter().filter_map(|value| {
+            let Value::Basis(base) = *value else {
+                return None;
+            };
+            Some(base)
+        })
+    }))
+    .collect::<Vec<_>>();
+    let mut a_fields = vec![];
+    for (index, term) in a_expr.terms.iter_mut().enumerate() {
+        let variable_name = format_ident!("_{index}");
+        a_fields.push(quote! { #variable_name });
+
+        let variable_name = format!("_{index}");
+        term.values.push(Value::Variable(variable_name));
+    }
+
+    let result = op(&a_expr, basis).simplify(basis).split_into_ga_terms();
+
+    let result_field_names =
+        field_names(result.iter().map(|term| term.bases.iter().copied())).collect::<Vec<_>>();
+    let result_expressions = result
+        .iter()
+        .map(|term| expression_to_tokens(&term.expression, type_))
+        .collect::<Vec<_>>();
+
+    quote! {
+        let Self {
+            #(#a_field_names: #a_fields,)*
+        } = #a_name;
+        Self {
+            #(#result_field_names: #result_expressions,)*
+        }
+    }
+}
+
+fn binary_operation_body(
     a: &Expression,
     a_name: Ident,
     b: &Expression,
