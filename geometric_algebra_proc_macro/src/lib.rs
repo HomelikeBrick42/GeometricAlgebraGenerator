@@ -249,6 +249,25 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             &type_,
         );
 
+        let pseudonorm_squared_impl = binary_operation_body(
+            &multivector_terms,
+            format_ident!("self"),
+            &multivector_terms,
+            format_ident!("self"),
+            |a, b, _| a.multiply(&b.reverse()),
+            &basis,
+            &type_,
+        );
+        let ideal_pseudonorm_squared_impl = binary_operation_body(
+            &multivector_terms,
+            format_ident!("self"),
+            &multivector_terms,
+            format_ident!("self"),
+            |a, b, basis| a.dual(basis).multiply(&b.dual(basis).reverse()),
+            &basis,
+            &type_,
+        );
+
         let mut grade_parts = vec![];
         let mut grade_part_branches = vec![];
         for i in 0..=basis.bases.len() {
@@ -322,7 +341,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 let grade_type = &grade_types[index];
 
                 let from_name = format_ident!("from_{}", grade_names[index]);
-                let into_name = format_ident!("into_{}", grade_names[index]);
+                let into_name = format_ident!("{}_part", grade_names[index]);
 
                 let fields = field_names(multivector_terms.grade_part(index).terms.iter().map(
                     |term| {
@@ -434,6 +453,46 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 }
 
                 #(#grade_parts)*
+
+                #function_attributes
+                pub fn pseudonorm_squared(self) -> Self {
+                    #pseudonorm_squared_impl
+                }
+
+                #function_attributes
+                pub fn norm_squared(self) -> f32 {
+                    self.pseudonorm_squared().scalar_part()
+                }
+
+                #function_attributes
+                pub fn magnitude_squared(self) -> f32 {
+                    self.norm_squared()
+                }
+
+                #function_attributes
+                pub fn magnitude(self) -> f32 {
+                    self.magnitude_squared().sqrt()
+                }
+
+                #function_attributes
+                pub fn ideal_pseudonorm_squared(self) -> Self {
+                    #ideal_pseudonorm_squared_impl
+                }
+
+                #function_attributes
+                pub fn ideal_norm_squared(self) -> f32 {
+                    self.ideal_pseudonorm_squared().scalar_part()
+                }
+
+                #function_attributes
+                pub fn ideal_magnitude_squared(self) -> f32 {
+                    self.ideal_norm_squared()
+                }
+
+                #function_attributes
+                pub fn ideal_magnitude(self) -> f32 {
+                    self.ideal_magnitude_squared().sqrt()
+                }
             }
 
             impl ::core::ops::Add<Self> for Multivector {
@@ -524,6 +583,15 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             n_vectors.push(quote! {
                 pub struct #name {
                     #(#n_vector_members: #type_,)*
+                }
+
+                impl #name {
+                    #function_attributes
+                    pub fn zero() -> Self {
+                        Self {
+                            #(#n_vector_members: <#type_ as ::core::convert::From<i8>>::from(0),)*
+                        }
+                    }
                 }
             });
         }
