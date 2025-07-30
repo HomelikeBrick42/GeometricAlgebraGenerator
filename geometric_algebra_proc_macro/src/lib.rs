@@ -402,8 +402,8 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 for<'__> #type_: ::core::fmt::Debug,
             {
                 fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                    f.debug_struct(stringify!(Multivector))
-                        #(.field(stringify!(#multivector_members), &self.#multivector_members))*
+                    f.debug_struct(::core::stringify!(Multivector))
+                        #(.field(::core::stringify!(#multivector_members), &self.#multivector_members))*
                         .finish()
                 }
             }
@@ -603,8 +603,8 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     for<'__> #type_: ::core::fmt::Debug,
                 {
                     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                        f.debug_struct(stringify!(#name))
-                            #(.field(stringify!(#n_vector_members), &self.#n_vector_members))*
+                        f.debug_struct(::core::stringify!(#name))
+                            #(.field(::core::stringify!(#n_vector_members), &self.#n_vector_members))*
                             .finish()
                     }
                 }
