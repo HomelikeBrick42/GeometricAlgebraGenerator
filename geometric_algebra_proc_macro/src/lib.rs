@@ -643,6 +643,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             let mut inners = vec![];
             let mut wedges = vec![];
+            let mut regressives = vec![];
             for m in 1..=basis.bases.len() {
                 let m_type = &grade_types[m];
                 let name = format_ident!("{}", grade_names[m]);
@@ -717,6 +718,39 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         }
                     });
                 }
+
+                'regressive: {
+                    let regressive_name = format_ident!("regressive_{}", grade_names[m]);
+
+                    let Some(regressive_result_grade) = basis
+                        .bases
+                        .len()
+                        .checked_sub((basis.bases.len() - n) + (basis.bases.len() - m))
+                    else {
+                        break 'regressive;
+                    };
+
+                    let regressive_result_type = &grade_types[regressive_result_grade];
+                    let regressive_impl = binary_operation_body(
+                        &n_vector_terms,
+                        &format_ident!("self"),
+                        &quote! { Self },
+                        &m_vector_terms,
+                        &name,
+                        m_type,
+                        |a, b, basis| a.regressive(b, basis),
+                        regressive_result_type,
+                        &basis,
+                        &type_,
+                        regressive_result_grade == 0,
+                    );
+
+                    regressives.push(quote! {
+                        pub fn #regressive_name(self, #name: #m_type) -> #regressive_result_type {
+                            #regressive_impl
+                        }
+                    });
+                }
             }
 
             let name = &grade_types[n];
@@ -748,6 +782,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                     #(#inners)*
                     #(#wedges)*
+                    #(#regressives)*
                 }
             });
         }
