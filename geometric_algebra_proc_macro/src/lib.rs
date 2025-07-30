@@ -582,12 +582,12 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 }
 
                 #function_attributes
-                pub fn project(self, other: Self) -> Self {
+                pub fn project_onto(self, other: Self) -> Self {
                     #project_impl
                 }
 
                 #function_attributes
-                pub fn apply(self, other: Self) -> Self {
+                pub fn apply_to(self, other: Self) -> Self {
                     #apply_impl
                 }
             }
@@ -681,6 +681,8 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             let mut inners = vec![];
             let mut wedges = vec![];
             let mut regressives = vec![];
+            let mut projects = vec![];
+            let mut applys = vec![];
             for m in 1..=basis.bases.len() {
                 let m_type = &grade_types[m];
                 let name = format_ident!("{}", grade_names[m]);
@@ -788,6 +790,62 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         }
                     });
                 }
+
+                if false {
+                    {
+                        let project_name = format_ident!("project_onto_{}", grade_names[m]);
+
+                        let project_result_grade = n;
+
+                        let project_result_type = &grade_types[project_result_grade];
+                        let project_impl = binary_operation_body(
+                            &n_vector_terms,
+                            &format_ident!("self"),
+                            &quote! { Self },
+                            &m_vector_terms,
+                            &name,
+                            m_type,
+                            |a, b, basis| a.inner(b, basis).multiply(b),
+                            project_result_type,
+                            &basis,
+                            &type_,
+                            project_result_grade == 0,
+                        );
+
+                        projects.push(quote! {
+                            pub fn #project_name(self, #name: #m_type) -> #project_result_type {
+                                #project_impl
+                            }
+                        });
+                    }
+                }
+
+                {
+                    let apply_name = format_ident!("apply_to_{}", grade_names[m]);
+
+                    let apply_result_grade = m;
+
+                    let apply_result_type = &grade_types[apply_result_grade];
+                    let apply_impl = binary_operation_body(
+                        &n_vector_terms,
+                        &format_ident!("self"),
+                        &quote! { Self },
+                        &m_vector_terms,
+                        &name,
+                        m_type,
+                        |a, b, _| a.multiply(b).multiply(&a.reverse()),
+                        apply_result_type,
+                        &basis,
+                        &type_,
+                        apply_result_grade == 0,
+                    );
+
+                    applys.push(quote! {
+                        pub fn #apply_name(self, #name: #m_type) -> #apply_result_type {
+                            #apply_impl
+                        }
+                    });
+                }
             }
 
             let name = &grade_types[n];
@@ -820,6 +878,8 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     #(#inners)*
                     #(#wedges)*
                     #(#regressives)*
+                    #(#projects)*
+                    #(#applys)*
                 }
             });
         }
