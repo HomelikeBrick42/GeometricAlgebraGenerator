@@ -392,8 +392,20 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
         };
 
         Some(quote! {
+            #[derive(::core::clone::Clone, ::core::marker::Copy)]
             pub struct Multivector {
-                #(#multivector_members: #type_,)*
+                #(pub #multivector_members: #type_,)*
+            }
+
+            impl ::core::fmt::Debug for Multivector
+            where
+                for<'__> #type_: ::core::fmt::Debug,
+            {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.debug_struct(stringify!(Multivector))
+                        #(.field(stringify!(#multivector_members), &self.#multivector_members))*
+                        .finish()
+                }
             }
 
             impl Multivector {
@@ -581,8 +593,20 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             let name = &grade_types[n];
             n_vectors.push(quote! {
+                #[derive(::core::clone::Clone, ::core::marker::Copy)]
                 pub struct #name {
-                    #(#n_vector_members: #type_,)*
+                    #(pub #n_vector_members: #type_,)*
+                }
+
+                impl ::core::fmt::Debug for #name
+                where
+                    for<'__> #type_: ::core::fmt::Debug,
+                {
+                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        f.debug_struct(stringify!(#name))
+                            #(.field(stringify!(#n_vector_members), &self.#n_vector_members))*
+                            .finish()
+                    }
                 }
 
                 impl #name {
