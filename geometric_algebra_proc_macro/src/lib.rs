@@ -153,18 +153,24 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         let add_impl = binary_operation_body(
             &multivector_terms,
-            format_ident!("self"),
+            &format_ident!("self"),
+            &quote! { Self },
             &multivector_terms,
-            format_ident!("other"),
+            &format_ident!("other"),
+            &quote! { Self },
             |a, b, _| a.add(b),
+            &quote! { Self },
             &basis,
             &type_,
+            false,
         );
         let sub_impl = binary_operation_body(
             &multivector_terms,
-            format_ident!("self"),
+            &format_ident!("self"),
+            &quote! { Self },
             &multivector_terms,
-            format_ident!("other"),
+            &format_ident!("other"),
+            &quote! { Self },
             |a, b, _| {
                 a.add(&b.multiply(&Expression {
                     terms: vec![Term {
@@ -172,22 +178,29 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     }],
                 }))
             },
+            &quote! { Self },
             &basis,
             &type_,
+            false,
         );
         let mul_impl = binary_operation_body(
             &multivector_terms,
-            format_ident!("self"),
+            &format_ident!("self"),
+            &quote! { Self },
             &multivector_terms,
-            format_ident!("other"),
+            &format_ident!("other"),
+            &quote! { Self },
             |a, b, _| a.multiply(b),
+            &quote! { Self },
             &basis,
             &type_,
+            false,
         );
 
         let negation_impl = unary_operation_body(
             &multivector_terms,
-            format_ident!("self"),
+            &format_ident!("self"),
+            &quote! { Self },
             |a, _| {
                 a.multiply(&Expression {
                     terms: vec![Term {
@@ -195,77 +208,108 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     }],
                 })
             },
+            &quote! { Self },
             &basis,
             &type_,
+            false,
         );
 
         let inner_impl = binary_operation_body(
             &multivector_terms,
-            format_ident!("self"),
+            &format_ident!("self"),
+            &quote! { Self },
             &multivector_terms,
-            format_ident!("other"),
+            &format_ident!("other"),
+            &quote! { Self },
             |a, b, basis| a.inner(b, basis),
+            &quote! { Self },
             &basis,
             &type_,
+            false,
         );
         let wedge_impl = binary_operation_body(
             &multivector_terms,
-            format_ident!("self"),
+            &format_ident!("self"),
+            &quote! { Self },
             &multivector_terms,
-            format_ident!("other"),
+            &format_ident!("other"),
+            &quote! { Self },
             |a, b, basis| a.wedge(b, basis),
+            &quote! { Self },
             &basis,
             &type_,
+            false,
         );
         let regressive_impl = binary_operation_body(
             &multivector_terms,
-            format_ident!("self"),
+            &format_ident!("self"),
+            &quote! { Self },
             &multivector_terms,
-            format_ident!("other"),
+            &format_ident!("other"),
+            &quote! { Self },
             |a, b, basis| a.regressive(b, basis),
+            &quote! { Self },
             &basis,
             &type_,
+            false,
         );
 
         let reverse_impl = unary_operation_body(
             &multivector_terms,
-            format_ident!("self"),
+            &format_ident!("self"),
+            &quote! { Self },
             |a, _| a.reverse(),
+            &quote! { Self },
             &basis,
             &type_,
+            false,
         );
         let dual_impl = unary_operation_body(
             &multivector_terms,
-            format_ident!("self"),
+            &format_ident!("self"),
+            &quote! { Self },
             |a, basis| a.dual(basis),
+            &quote! { Self },
             &basis,
             &type_,
+            false,
         );
         let dual_inverse_impl = unary_operation_body(
             &multivector_terms,
-            format_ident!("self"),
+            &format_ident!("self"),
+            &quote! { Self },
             |a, basis| a.dual_inverse(basis),
+            &quote! { Self },
             &basis,
             &type_,
+            false,
         );
 
         let pseudonorm_squared_impl = binary_operation_body(
             &multivector_terms,
-            format_ident!("self"),
+            &format_ident!("self"),
+            &quote! { Self },
             &multivector_terms,
-            format_ident!("self"),
+            &format_ident!("self"),
+            &quote! { Self },
             |a, b, _| a.multiply(&b.reverse()),
+            &quote! { Self },
             &basis,
             &type_,
+            false,
         );
         let ideal_pseudonorm_squared_impl = binary_operation_body(
             &multivector_terms,
-            format_ident!("self"),
+            &format_ident!("self"),
+            &quote! { Self },
             &multivector_terms,
-            format_ident!("self"),
+            &format_ident!("self"),
+            &quote! { Self },
             |a, b, basis| a.dual(basis).multiply(&b.dual(basis).reverse()),
+            &quote! { Self },
             &basis,
             &type_,
+            false,
         );
 
         let mut grade_parts = vec![];
@@ -275,10 +319,13 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             let imp = unary_operation_body(
                 &multivector_terms,
-                format_ident!("self"),
+                &format_ident!("self"),
+                &quote! { Self },
                 |a, _| a.grade_part(i),
+                &quote! { Self },
                 &basis,
                 &type_,
+                false,
             );
 
             grade_parts.push(quote! {
@@ -401,6 +448,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             where
                 for<'__> #type_: ::core::fmt::Debug,
             {
+                #[inline]
                 fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                     f.debug_struct(::core::stringify!(Multivector))
                         #(.field(::core::stringify!(#multivector_members), &self.#multivector_members))*
@@ -581,14 +629,61 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             let mut n_vector_members = vec![];
             {
                 let terms = Expression::generate_grade(&basis, n, &mut 0).split_into_ga_terms();
-                n_vector_members.extend(field_names(
-                    terms.iter().map(|term| term.bases.iter().cloned()),
-                ));
+                n_vector_members.extend(field_names(terms.iter().map(
+                    |term| -> std::iter::Cloned<std::slice::Iter<'_, BasisIndex>> {
+                        term.bases.iter().cloned()
+                    },
+                )));
                 for term in terms {
                     n_vector_terms.terms.push(Term {
                         values: term.bases.iter().copied().map(Value::Basis).collect(),
                     });
                 }
+            }
+
+            let mut inners = vec![];
+            for m in 1..=basis.bases.len() {
+                let m_type = &grade_types[m];
+                let name = format_ident!("{}", grade_names[m]);
+                let inner_name = format_ident!("inner_{}", grade_names[m]);
+
+                let mut m_vector_terms = Expression { terms: vec![] };
+                let mut m_vector_members = vec![];
+                {
+                    let terms = Expression::generate_grade(&basis, m, &mut 0).split_into_ga_terms();
+                    m_vector_members.extend(field_names(terms.iter().map(
+                        |term| -> std::iter::Cloned<std::slice::Iter<'_, BasisIndex>> {
+                            term.bases.iter().cloned()
+                        },
+                    )));
+                    for term in terms {
+                        m_vector_terms.terms.push(Term {
+                            values: term.bases.iter().copied().map(Value::Basis).collect(),
+                        });
+                    }
+                }
+
+                let inner_result_grade = n.abs_diff(m);
+                let inner_result_type = &grade_types[inner_result_grade];
+                let inner_impl = binary_operation_body(
+                    &n_vector_terms,
+                    &format_ident!("self"),
+                    &quote! { Self },
+                    &m_vector_terms,
+                    &name,
+                    m_type,
+                    |a, b, basis| a.inner(b, basis),
+                    inner_result_type,
+                    &basis,
+                    &type_,
+                    inner_result_grade == 0,
+                );
+
+                inners.push(quote! {
+                    pub fn #inner_name(self, #name: #m_type) -> #inner_result_type {
+                        #inner_impl
+                    }
+                });
             }
 
             let name = &grade_types[n];
@@ -602,6 +697,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 where
                     for<'__> #type_: ::core::fmt::Debug,
                 {
+                    #[inline]
                     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                         f.debug_struct(::core::stringify!(#name))
                             #(.field(::core::stringify!(#n_vector_members), &self.#n_vector_members))*
@@ -616,6 +712,8 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                             #(#n_vector_members: <#type_ as ::core::convert::From<i8>>::from(0),)*
                         }
                     }
+
+                    #(#inners)*
                 }
             });
         }
@@ -640,12 +738,16 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     .into()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn unary_operation_body(
     a: &Expression,
-    a_name: Ident,
+    a_name: &Ident,
+    a_type: &TokenStream,
     op: impl FnOnce(&Expression, &Basis) -> Expression,
+    result_type: &TokenStream,
     basis: &Basis,
     type_: &Type,
+    flatten_results: bool,
 ) -> TokenStream {
     let mut a_expr = a.simplify(basis);
     let a_field_names = field_names(a_expr.terms.iter().map(|term| {
@@ -670,32 +772,51 @@ fn unary_operation_body(
 
     let result_field_names =
         field_names(result.iter().map(|term| term.bases.iter().copied())).collect::<Vec<_>>();
-    let result_expressions = result
+    let mut result_expressions = result
         .iter()
         .map(|term| expression_to_tokens(&term.expression, type_))
         .collect::<Vec<_>>();
 
+    if result_expressions.is_empty() {
+        result_expressions.push(quote! { <#type_ as ::core::convert::From<i8>>::from(0) });
+    }
+
+    let result = if flatten_results {
+        quote! {
+            (#(#result_expressions),*)
+        }
+    } else {
+        quote! {
+            #result_type {
+                #(#result_field_names: #result_expressions,)*
+                ..<#result_type>::zero()
+            }
+        }
+    };
+
     quote! {
-        let Self {
+        let #a_type {
             #(#a_field_names: #a_fields,)*
         } = #a_name;
         #[allow(clippy::needless_update)]
-        let result = Self {
-            #(#result_field_names: #result_expressions,)*
-            ..Self::zero()
-        };
+        let result = #result;
         result
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn binary_operation_body(
     a: &Expression,
-    a_name: Ident,
+    a_name: &Ident,
+    a_type: &TokenStream,
     b: &Expression,
-    b_name: Ident,
+    b_name: &Ident,
+    b_type: &TokenStream,
     op: impl FnOnce(&Expression, &Expression, &Basis) -> Expression,
+    result_type: &TokenStream,
     basis: &Basis,
     type_: &Type,
+    flatten_results: bool,
 ) -> TokenStream {
     let mut index = 0usize;
 
@@ -745,23 +866,37 @@ fn binary_operation_body(
 
     let result_field_names =
         field_names(result.iter().map(|term| term.bases.iter().copied())).collect::<Vec<_>>();
-    let result_expressions = result
+    let mut result_expressions = result
         .iter()
         .map(|term| expression_to_tokens(&term.expression, type_))
         .collect::<Vec<_>>();
 
+    if result_expressions.is_empty() {
+        result_expressions.push(quote! { <#type_ as ::core::convert::From<i8>>::from(0) });
+    }
+
+    let result = if flatten_results {
+        quote! {
+            #(#result_expressions)*
+        }
+    } else {
+        quote! {
+            #result_type {
+                #(#result_field_names: #result_expressions,)*
+                ..<#result_type>::zero()
+            }
+        }
+    };
+
     quote! {
-        let Self {
+        let #a_type {
             #(#a_field_names: #a_fields,)*
         } = #a_name;
-        let Self {
+        let #b_type {
             #(#b_field_names: #b_fields,)*
         } = #b_name;
         #[allow(clippy::needless_update)]
-        let result = Self {
-            #(#result_field_names: #result_expressions,)*
-            ..Self::zero()
-        };
+        let result = #result;
         result
     }
 }
@@ -790,6 +925,9 @@ fn expression_to_tokens(expression: &Expression, type_: &Type) -> TokenStream {
             .map(|term| term_to_tokens(term, type_)),
         Token![+](Span::call_site()),
     );
+    if expression.terms.is_empty() {
+        terms.append_all(quote! { <#type_ as ::core::convert::From<i8>>::from(0) });
+    }
     quote! { (#terms) }
 }
 
@@ -801,6 +939,9 @@ fn term_to_tokens(term: &Term, type_: &Type) -> TokenStream {
             .map(|value| value_to_tokens(value, type_)),
         Token![*](Span::call_site()),
     );
+    if term.values.is_empty() {
+        values.append_all(quote! { <#type_ as ::core::convert::From<i8>>::from(1) });
+    }
     quote! { (#values) }
 }
 
