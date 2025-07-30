@@ -312,6 +312,33 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             false,
         );
 
+        let project_impl = binary_operation_body(
+            &multivector_terms,
+            &format_ident!("self"),
+            &quote! { Self },
+            &multivector_terms,
+            &format_ident!("other"),
+            &quote! { Self },
+            |a, b, basis| a.inner(b, basis).multiply(b),
+            &quote! { Self },
+            &basis,
+            &type_,
+            false,
+        );
+        let apply_impl = binary_operation_body(
+            &multivector_terms,
+            &format_ident!("self"),
+            &quote! { Self },
+            &multivector_terms,
+            &format_ident!("other"),
+            &quote! { Self },
+            |a, b, _| a.multiply(b).multiply(&a.reverse()),
+            &quote! { Self },
+            &basis,
+            &type_,
+            false,
+        );
+
         let mut grade_parts = vec![];
         let mut grade_part_branches = vec![];
         for i in 0..=basis.bases.len() {
@@ -552,6 +579,16 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 #function_attributes
                 pub fn ideal_magnitude(self) -> f32 {
                     self.ideal_magnitude_squared().sqrt()
+                }
+
+                #function_attributes
+                pub fn project(self, other: Self) -> Self {
+                    #project_impl
+                }
+
+                #function_attributes
+                pub fn apply(self, other: Self) -> Self {
+                    #apply_impl
                 }
             }
 
