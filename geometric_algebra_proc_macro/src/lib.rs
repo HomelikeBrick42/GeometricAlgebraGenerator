@@ -642,10 +642,10 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
 
             let mut inners = vec![];
+            let mut wedges = vec![];
             for m in 1..=basis.bases.len() {
                 let m_type = &grade_types[m];
                 let name = format_ident!("{}", grade_names[m]);
-                let inner_name = format_ident!("inner_{}", grade_names[m]);
 
                 let mut m_vector_terms = Expression { terms: vec![] };
                 let mut m_vector_members = vec![];
@@ -663,27 +663,60 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     }
                 }
 
-                let inner_result_grade = n.abs_diff(m);
-                let inner_result_type = &grade_types[inner_result_grade];
-                let inner_impl = binary_operation_body(
-                    &n_vector_terms,
-                    &format_ident!("self"),
-                    &quote! { Self },
-                    &m_vector_terms,
-                    &name,
-                    m_type,
-                    |a, b, basis| a.inner(b, basis),
-                    inner_result_type,
-                    &basis,
-                    &type_,
-                    inner_result_grade == 0,
-                );
+                {
+                    let inner_name = format_ident!("inner_{}", grade_names[m]);
 
-                inners.push(quote! {
-                    pub fn #inner_name(self, #name: #m_type) -> #inner_result_type {
-                        #inner_impl
+                    let inner_result_grade = n.abs_diff(m);
+                    let inner_result_type = &grade_types[inner_result_grade];
+                    let inner_impl = binary_operation_body(
+                        &n_vector_terms,
+                        &format_ident!("self"),
+                        &quote! { Self },
+                        &m_vector_terms,
+                        &name,
+                        m_type,
+                        |a, b, basis| a.inner(b, basis),
+                        inner_result_type,
+                        &basis,
+                        &type_,
+                        inner_result_grade == 0,
+                    );
+
+                    inners.push(quote! {
+                        pub fn #inner_name(self, #name: #m_type) -> #inner_result_type {
+                            #inner_impl
+                        }
+                    });
+                }
+
+                'wedge: {
+                    let wedge_name = format_ident!("wedge_{}", grade_names[m]);
+
+                    let wedge_result_grade = n + m;
+                    if wedge_result_grade > basis.bases.len() {
+                        break 'wedge;
                     }
-                });
+                    let wedge_result_type = &grade_types[wedge_result_grade];
+                    let wedge_impl = binary_operation_body(
+                        &n_vector_terms,
+                        &format_ident!("self"),
+                        &quote! { Self },
+                        &m_vector_terms,
+                        &name,
+                        m_type,
+                        |a, b, basis| a.wedge(b, basis),
+                        wedge_result_type,
+                        &basis,
+                        &type_,
+                        wedge_result_grade == 0,
+                    );
+
+                    wedges.push(quote! {
+                        pub fn #wedge_name(self, #name: #m_type) -> #wedge_result_type {
+                            #wedge_impl
+                        }
+                    });
+                }
             }
 
             let name = &grade_types[n];
@@ -714,6 +747,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     }
 
                     #(#inners)*
+                    #(#wedges)*
                 }
             });
         }
