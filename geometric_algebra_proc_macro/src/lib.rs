@@ -633,6 +633,12 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     };
 
     let n_vectors_tokens = if n_vectors {
+        let pseudoscalar = if let index @ 1.. = basis.bases.len().saturating_sub(0) {
+            let name = &grade_types[index];
+            Some(quote! { pub type Pseudoscalar = #name; })
+        } else {
+            None
+        };
         let point = if let index @ 1.. = basis.bases.len().saturating_sub(1) {
             let name = &grade_types[index];
             Some(quote! { pub type Point = #name; })
@@ -897,6 +903,7 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             #line
             #plane
             #hyperplane
+            #pseudoscalar
 
             #(#n_vectors)*
         })
