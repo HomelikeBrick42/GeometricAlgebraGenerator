@@ -791,33 +791,36 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     });
                 }
 
-                if false {
-                    {
-                        let project_name = format_ident!("project_onto_{}", grade_names[m]);
+                {
+                    let project_name = format_ident!("project_onto_{}", grade_names[m]);
 
-                        let project_result_grade = n;
+                    let project_result_grade = n;
 
-                        let project_result_type = &grade_types[project_result_grade];
-                        let project_impl = binary_operation_body(
-                            &n_vector_terms,
-                            &format_ident!("self"),
-                            &quote! { Self },
-                            &m_vector_terms,
-                            &name,
-                            m_type,
-                            |a, b, basis| a.inner(b, basis).multiply(b),
-                            project_result_type,
-                            &basis,
-                            &type_,
-                            project_result_grade == 0,
-                        );
+                    let project_result_type = &grade_types[project_result_grade];
+                    let project_impl = binary_operation_body(
+                        &n_vector_terms,
+                        &format_ident!("self"),
+                        &quote! { Self },
+                        &m_vector_terms,
+                        &name,
+                        m_type,
+                        |a, b, basis| {
+                            a.inner(b, basis)
+                                .multiply(b)
+                                .simplify(basis)
+                                .grade_part(project_result_grade)
+                        },
+                        project_result_type,
+                        &basis,
+                        &type_,
+                        project_result_grade == 0,
+                    );
 
-                        projects.push(quote! {
-                            pub fn #project_name(self, #name: #m_type) -> #project_result_type {
-                                #project_impl
-                            }
-                        });
-                    }
+                    projects.push(quote! {
+                        pub fn #project_name(self, #name: #m_type) -> #project_result_type {
+                            #project_impl
+                        }
+                    });
                 }
 
                 {
@@ -833,7 +836,12 @@ pub fn pga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         &m_vector_terms,
                         &name,
                         m_type,
-                        |a, b, _| a.multiply(b).multiply(&a.reverse()),
+                        |a, b, basis| {
+                            a.multiply(b)
+                                .multiply(&a.reverse())
+                                .simplify(basis)
+                                .grade_part(apply_result_grade)
+                        },
                         apply_result_type,
                         &basis,
                         &type_,
