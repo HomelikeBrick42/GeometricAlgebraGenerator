@@ -308,24 +308,6 @@ impl Expression {
         terms
     }
 
-    pub fn generate_grade(basis: &Basis, grade: usize, offset: &mut usize) -> Self {
-        Self {
-            terms: basis
-                .bases
-                .iter()
-                .enumerate()
-                .map(|(i, _)| BasisIndex(i))
-                .combinations(grade)
-                .map(|basis| {
-                    let mut values = basis.into_iter().map(Value::Basis).collect::<Vec<_>>();
-                    values.push(Value::Variable(format!("_{offset}")));
-                    *offset += 1;
-                    Term { values }
-                })
-                .collect(),
-        }
-    }
-
     pub fn grade_part(&self, grade: usize) -> Expression {
         Self {
             terms: self
