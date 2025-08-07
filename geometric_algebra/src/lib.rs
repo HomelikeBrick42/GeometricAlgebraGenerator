@@ -297,6 +297,14 @@ pub fn ga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             pub struct #name {
                 #(#member_names: #element_type,)*
             }
+
+            impl #name {
+                pub fn zero() -> Self {
+                    Self {
+                        #(#member_names: <#element_type as ::core::convert::From<i8>>::from(0),)*
+                    }
+                }
+            }
         });
     }
 
