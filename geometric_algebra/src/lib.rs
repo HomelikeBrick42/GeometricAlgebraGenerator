@@ -1,7 +1,8 @@
 mod ga;
 
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::{Attribute, Error, Ident, Token, Type, parse::Parse, parse_macro_input};
+use syn::{Attribute, Ident, Token, Type, parse::Parse, parse_macro_input};
 
 use crate::ga::{Basis, SquaresTo};
 
@@ -115,12 +116,94 @@ impl Parse for Group {
     }
 }
 
-struct Function {}
+struct Argument {
+    name: Ident,
+    group: Ident,
+}
+
+impl Parse for Argument {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let name = input.parse::<Ident>()?;
+        input.parse::<Token![:]>()?;
+        let group = input.parse::<Ident>()?;
+        Ok(Argument { name, group })
+    }
+}
+
+struct Variable {}
+
+impl Parse for Variable {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        input.parse::<Token![let]>()?;
+        input.parse::<Token![;]>()?;
+        Ok(Variable {})
+    }
+}
+
+struct Return {}
+
+impl Parse for Return {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        input.parse::<Token![return]>()?;
+        input.parse::<Token![;]>()?;
+        Ok(Return {})
+    }
+}
+
+struct Function {
+    name: Ident,
+    arguments: Vec<Argument>,
+    return_group: Ident,
+    variables: Vec<Variable>,
+    return_expr: Return,
+}
 
 impl Parse for Function {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         input.parse::<Token![fn]>()?;
-        Ok(Function {})
+        let name = input.parse::<Ident>()?;
+
+        let arguments_tokens;
+        syn::parenthesized!(arguments_tokens in input);
+        let arguments = arguments_tokens
+            .parse_terminated(Argument::parse, Token![,])?
+            .into_iter()
+            .collect::<Vec<_>>();
+
+        input.parse::<Token![->]>()?;
+        let return_group = input.parse::<Ident>()?;
+
+        let mut variables = vec![];
+        let mut return_expr = None;
+
+        let body_tokens;
+        syn::braced!(body_tokens in input);
+        while !body_tokens.is_empty() {
+            let lookahead = body_tokens.lookahead1();
+            if lookahead.peek(Token![let]) {
+                variables.push(body_tokens.parse::<Variable>()?);
+            } else if lookahead.peek(Token![return]) {
+                return_expr = Some(body_tokens.parse::<Return>()?);
+                break;
+            } else {
+                return Err(lookahead.error());
+            }
+        }
+
+        let return_expr = return_expr.ok_or_else(|| {
+            syn::Error::new(
+                body_tokens.span(),
+                "There must be a `return` as the last statement in the body",
+            )
+        })?;
+
+        Ok(Function {
+            name,
+            arguments,
+            return_group,
+            variables,
+            return_expr,
+        })
     }
 }
 
@@ -177,143 +260,152 @@ impl Parse for GaInput {
     }
 }
 
-#[proc_macro]
-pub fn ga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let GaInput {
+fn group_element_list_name(
+    element_list: &ElementList,
+    scalar_name: &Ident,
+    elements: &[Element],
+) -> syn::Result<Ident> {
+    let mut member_name = String::new();
+
+    let mut appended_names = vec![];
+    for element in &element_list.elements {
+        let element_name = element.to_string();
+
+        for appended_name in &appended_names {
+            if element_name == *appended_name {
+                return Err(syn::Error::new(
+                    element.span(),
+                    "Cannot use the same element twice in an element list",
+                ));
+            }
+        }
+
+        let mut found = false;
+
+        if *scalar_name == element_name {
+            if element_list.elements.len() == 1 {
+                found = true;
+                member_name.push_str(&element_name);
+            } else {
+                return Err(syn::Error::new(
+                    element.span(),
+                    "Using a scalar in a group multiplied with other elements is not supported",
+                ));
+            }
+        }
+
+        for element in elements {
+            if element.name == element_name {
+                found = true;
+                member_name.push_str(&element_name);
+                break;
+            }
+        }
+
+        if !found {
+            return Err(syn::Error::new(
+                element.span(),
+                "Unknown scalar, element, or group name",
+            ));
+        }
+
+        appended_names.push(element_name);
+    }
+
+    Ok(format_ident!("{member_name}"))
+}
+
+fn generate_group(
+    Group {
+        attrs,
+        name,
+        element_lists,
+    }: &Group,
+    element_type: &Type,
+    scalar_name: &Ident,
+    elements: &[Element],
+) -> syn::Result<TokenStream> {
+    if scalar_name == name {
+        return Err(syn::Error::new(
+            name.span(),
+            "Group name cannot be the same as scalar name",
+        ));
+    }
+
+    for element in elements {
+        if element.name == *name {
+            return Err(syn::Error::new(
+                name.span(),
+                "Group name cannot be the same as an element name",
+            ));
+        }
+    }
+
+    let member_names = element_lists
+        .iter()
+        .map(|element_list| group_element_list_name(element_list, scalar_name, elements))
+        .collect::<syn::Result<Vec<_>>>()?;
+
+    Ok(quote! {
+        #(#attrs)*
+        pub struct #name {
+            #(#member_names: #element_type,)*
+        }
+
+        impl #name {
+            pub fn zero() -> Self {
+                Self {
+                    #(#member_names: <#element_type as ::core::convert::From<i8>>::from(0),)*
+                }
+            }
+        }
+    })
+}
+
+fn generate(
+    GaInput {
         element_type,
         scalar_name,
         elements,
         groups,
         functions: _,
-    } = parse_macro_input!(tokens as GaInput);
-
+    }: GaInput,
+) -> syn::Result<TokenStream> {
     for (i, element) in elements.iter().enumerate() {
         if element.name == scalar_name {
-            return Error::new(
+            return Err(syn::Error::new(
                 element.name.span(),
                 "Element name cannot be the same as the scalar name",
-            )
-            .into_compile_error()
-            .into();
+            ));
         }
 
         for other in &elements[..i] {
             if element.name == other.name {
-                return Error::new(element.name.span(), "Cannot repeat element names")
-                    .into_compile_error()
-                    .into();
+                return Err(syn::Error::new(
+                    element.name.span(),
+                    "Cannot repeat element names",
+                ));
             }
         }
     }
 
-    let mut structs = vec![];
-    for Group {
-        attrs,
-        name,
-        element_lists,
-    } in &groups
-    {
-        if scalar_name == *name {
-            return Error::new(name.span(), "Group name cannot be the same as scalar name")
-                .into_compile_error()
-                .into();
-        }
-
-        for element in &elements {
-            if element.name == *name {
-                return Error::new(
-                    name.span(),
-                    "Group name cannot be the same as an element name",
-                )
-                .into_compile_error()
-                .into();
-            }
-        }
-
-        let mut member_names = vec![];
-
-        for element_list in element_lists {
-            let mut member_name = String::new();
-
-            let mut appended_names = vec![];
-            for element in &element_list.elements {
-                let element_name = element.to_string();
-
-                for appended_name in &appended_names {
-                    if element_name == *appended_name {
-                        return Error::new(
-                            element.span(),
-                            "Cannot use the same element twice in an element list",
-                        )
-                        .into_compile_error()
-                        .into();
-                    }
-                }
-
-                let mut found = false;
-
-                if scalar_name == element_name {
-                    if element_list.elements.len() == 1 {
-                        found = true;
-                        member_name.push_str(&element_name);
-                    } else {
-                        return Error::new(
-                            element.span(),
-                            "Using a scalar in a group multiplied with other elements is not supported"
-                        )
-                        .into_compile_error()
-                        .into();
-                    }
-                }
-
-                for element in &elements {
-                    if element.name == element_name {
-                        found = true;
-                        member_name.push_str(&element_name);
-                        break;
-                    }
-                }
-
-                for group in &groups {
-                    if group.name == element_name {
-                        todo!("using groups in defintions of other groups")
-                    }
-                }
-
-                if !found {
-                    return Error::new(element.span(), "Unknown scalar, element, or group name")
-                        .into_compile_error()
-                        .into();
-                }
-
-                appended_names.push(element_name);
-            }
-
-            member_names.push(format_ident!("{member_name}"));
-        }
-
-        structs.push(quote! {
-            #(#attrs)*
-            pub struct #name {
-                #(#member_names: #element_type,)*
-            }
-
-            impl #name {
-                pub fn zero() -> Self {
-                    Self {
-                        #(#member_names: <#element_type as ::core::convert::From<i8>>::from(0),)*
-                    }
-                }
-            }
-        });
-    }
+    let structs = groups
+        .iter()
+        .map(|group| generate_group(group, &element_type, &scalar_name, &elements))
+        .collect::<syn::Result<Vec<_>>>()?;
 
     let _basis = Basis {
         bases: elements.iter().map(|element| element.squares_to).collect(),
     };
 
-    quote! {
+    Ok(quote! {
         #(#structs)*
-    }
-    .into()
+    })
+}
+
+#[proc_macro]
+pub fn ga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    generate(parse_macro_input!(tokens))
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
 }
