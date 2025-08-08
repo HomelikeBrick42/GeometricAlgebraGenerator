@@ -12,6 +12,11 @@ geometric_algebra::ga! {
     fn test(a: Vector, b: Vector) -> Rotor {
         return a * b;
     }
+
+    fn project(a: Vector, b: Bivector) -> Vector {
+        let perp = a | b;
+        return perp * b;
+    }
 }
 
 fn main() {}
