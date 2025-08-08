@@ -22,6 +22,7 @@ mod kw {
     custom_keyword!(positive_one);
     custom_keyword!(elements);
     custom_keyword!(group);
+    custom_keyword!(grade_part);
 }
 
 struct Element {
@@ -131,6 +132,10 @@ enum Expression {
     Dual {
         operand: Box<Expression>,
     },
+    GradePart {
+        grade: usize,
+        operand: Box<Expression>,
+    },
 }
 
 impl Parse for Expression {
@@ -161,6 +166,22 @@ impl Parse for Expression {
                 input.parse::<Token![!]>()?;
                 let operand = primary_expression(input)?;
                 Expression::Dual {
+                    operand: Box::new(operand),
+                }
+            } else if lookahead.peek(kw::grade_part) {
+                input.parse::<kw::grade_part>()?;
+                let expression_tokens;
+                parenthesized!(expression_tokens in input);
+                let grade = expression_tokens
+                    .parse::<LitInt>()?
+                    .base10_parse::<usize>()?;
+                expression_tokens.parse::<Token![,]>()?;
+                let operand = primary_expression(&expression_tokens)?;
+                if expression_tokens.peek(Token![,]) {
+                    expression_tokens.parse::<Token![,]>()?;
+                }
+                Expression::GradePart {
+                    grade,
                     operand: Box::new(operand),
                 }
             } else {
@@ -430,6 +451,10 @@ fn eval_expression(
         Expression::Dual { operand } => {
             let operand = eval_expression(operand, names, basis)?.simplify(basis);
             operand.dual(basis)
+        }
+        Expression::GradePart { grade, operand } => {
+            let operand = eval_expression(operand, names, basis)?.simplify(basis);
+            operand.grade_part(*grade)
         }
     })
 }
