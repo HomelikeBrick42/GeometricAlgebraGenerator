@@ -142,9 +142,7 @@ impl Parse for Expression {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         fn primary_expression(input: syn::parse::ParseStream) -> syn::Result<Expression> {
             let lookahead = input.lookahead1();
-            Ok(if lookahead.peek(Ident::peek_any) {
-                Expression::Name(input.parse()?)
-            } else if lookahead.peek(LitInt) {
+            Ok(if lookahead.peek(LitInt) {
                 Expression::Constant(input.parse::<LitInt>()?.base10_parse()?)
             } else if lookahead.peek(syn::token::Paren) {
                 let expression_tokens;
@@ -184,6 +182,8 @@ impl Parse for Expression {
                     grade,
                     operand: Box::new(operand),
                 }
+            } else if lookahead.peek(Ident::peek_any) {
+                Expression::Name(input.parse()?)
             } else {
                 return Err(lookahead.error());
             })
