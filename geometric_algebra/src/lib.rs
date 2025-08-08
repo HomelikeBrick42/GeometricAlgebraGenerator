@@ -120,6 +120,15 @@ enum Expression {
         left: Box<Expression>,
         right: Box<Expression>,
     },
+    Negate {
+        operand: Box<Expression>,
+    },
+    Reverse {
+        operand: Box<Expression>,
+    },
+    Dual {
+        operand: Box<Expression>,
+    },
 }
 
 impl Parse for Expression {
@@ -134,6 +143,24 @@ impl Parse for Expression {
                 let expression_tokens;
                 parenthesized!(expression_tokens in input);
                 expression_tokens.parse::<Expression>()?
+            } else if lookahead.peek(Token![-]) {
+                input.parse::<Token![-]>()?;
+                let operand = primary_expression(input)?;
+                Expression::Negate {
+                    operand: Box::new(operand),
+                }
+            } else if lookahead.peek(Token![~]) {
+                input.parse::<Token![~]>()?;
+                let operand = primary_expression(input)?;
+                Expression::Reverse {
+                    operand: Box::new(operand),
+                }
+            } else if lookahead.peek(Token![!]) {
+                input.parse::<Token![!]>()?;
+                let operand = primary_expression(input)?;
+                Expression::Dual {
+                    operand: Box::new(operand),
+                }
             } else {
                 return Err(lookahead.error());
             })
@@ -385,6 +412,22 @@ fn eval_expression(
             let left = eval_expression(left, names, basis)?.simplify(basis);
             let right = eval_expression(right, names, basis)?.simplify(basis);
             left.regressive(&right, basis)
+        }
+        Expression::Negate { operand } => {
+            let operand = eval_expression(operand, names, basis)?;
+            operand.multiply(&ga::Expression {
+                terms: vec![ga::Term {
+                    values: vec![ga::Value::Constant(-1)],
+                }],
+            })
+        }
+        Expression::Reverse { operand } => {
+            let operand = eval_expression(operand, names, basis)?.simplify(basis);
+            operand.reverse()
+        }
+        Expression::Dual { operand } => {
+            let operand = eval_expression(operand, names, basis)?.simplify(basis);
+            operand.dual(basis)
         }
     })
 }
