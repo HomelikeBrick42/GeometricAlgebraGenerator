@@ -537,6 +537,33 @@ fn generate_group(
             #(#group_member_names: #element_type,)*
         }
 
+        impl ::core::clone::Clone for #name_without_span
+        where
+            for<'__> #element_type: ::core::clone::Clone,
+        {
+            fn clone(&self) -> Self {
+                Self {
+                    #(#group_member_names: <#element_type as ::core::clone::Clone>::clone(&self.#group_member_names),)*
+                }
+            }
+        }
+
+        impl ::core::marker::Copy for #name_without_span
+        where
+            for<'__> #element_type: ::core::marker::Copy,
+        {}
+
+        impl ::core::fmt::Debug for #name_without_span
+        where
+            for<'__> #element_type: ::core::fmt::Debug,
+        {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                f.debug_struct(stringify!(#name_without_span))
+                    #(.field(stringify!(#group_member_names), &self.#group_member_names))*
+                    .finish()
+            }
+        }
+
         // the name_without_span is to prevent hovering over the group name repeating the type defintion twice
         impl #name_without_span {
             pub fn zero() -> Self {

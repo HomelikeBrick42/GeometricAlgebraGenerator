@@ -35,6 +35,28 @@ ga_generator::ga! {
 pub struct Scalar {
     s: f32,
 }
+impl ::core::clone::Clone for Scalar
+where
+    for<'__> f32: ::core::clone::Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            s: <f32 as ::core::clone::Clone>::clone(&self.s),
+        }
+    }
+}
+impl ::core::marker::Copy for Scalar
+where
+    for<'__> f32: ::core::marker::Copy,
+{}
+impl ::core::fmt::Debug for Scalar
+where
+    for<'__> f32: ::core::fmt::Debug,
+{
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_struct("Scalar").field("s", &self.s).finish()
+    }
+}
 impl Scalar {
     pub fn zero() -> Self {
         Self {
@@ -46,6 +68,34 @@ pub struct Vector {
     e0: f32,
     e1: f32,
     e2: f32,
+}
+impl ::core::clone::Clone for Vector
+where
+    for<'__> f32: ::core::clone::Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            e0: <f32 as ::core::clone::Clone>::clone(&self.e0),
+            e1: <f32 as ::core::clone::Clone>::clone(&self.e1),
+            e2: <f32 as ::core::clone::Clone>::clone(&self.e2),
+        }
+    }
+}
+impl ::core::marker::Copy for Vector
+where
+    for<'__> f32: ::core::marker::Copy,
+{}
+impl ::core::fmt::Debug for Vector
+where
+    for<'__> f32: ::core::fmt::Debug,
+{
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_struct("Vector")
+            .field("e0", &self.e0)
+            .field("e1", &self.e1)
+            .field("e2", &self.e2)
+            .finish()
+    }
 }
 impl Vector {
     pub fn zero() -> Self {
@@ -61,6 +111,34 @@ pub struct Bivector {
     e0e2: f32,
     e1e2: f32,
 }
+impl ::core::clone::Clone for Bivector
+where
+    for<'__> f32: ::core::clone::Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            e0e1: <f32 as ::core::clone::Clone>::clone(&self.e0e1),
+            e0e2: <f32 as ::core::clone::Clone>::clone(&self.e0e2),
+            e1e2: <f32 as ::core::clone::Clone>::clone(&self.e1e2),
+        }
+    }
+}
+impl ::core::marker::Copy for Bivector
+where
+    for<'__> f32: ::core::marker::Copy,
+{}
+impl ::core::fmt::Debug for Bivector
+where
+    for<'__> f32: ::core::fmt::Debug,
+{
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_struct("Bivector")
+            .field("e0e1", &self.e0e1)
+            .field("e0e2", &self.e0e2)
+            .field("e1e2", &self.e1e2)
+            .finish()
+    }
+}
 impl Bivector {
     pub fn zero() -> Self {
         Self {
@@ -72,6 +150,28 @@ impl Bivector {
 }
 pub struct Trivector {
     e0e1e2: f32,
+}
+impl ::core::clone::Clone for Trivector
+where
+    for<'__> f32: ::core::clone::Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            e0e1e2: <f32 as ::core::clone::Clone>::clone(&self.e0e1e2),
+        }
+    }
+}
+impl ::core::marker::Copy for Trivector
+where
+    for<'__> f32: ::core::marker::Copy,
+{}
+impl ::core::fmt::Debug for Trivector
+where
+    for<'__> f32: ::core::fmt::Debug,
+{
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_struct("Trivector").field("e0e1e2", &self.e0e1e2).finish()
+    }
 }
 impl Trivector {
     pub fn zero() -> Self {
@@ -85,6 +185,36 @@ pub struct Rotor {
     e0e1: f32,
     e0e2: f32,
     e1e2: f32,
+}
+impl ::core::clone::Clone for Rotor
+where
+    for<'__> f32: ::core::clone::Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            s: <f32 as ::core::clone::Clone>::clone(&self.s),
+            e0e1: <f32 as ::core::clone::Clone>::clone(&self.e0e1),
+            e0e2: <f32 as ::core::clone::Clone>::clone(&self.e0e2),
+            e1e2: <f32 as ::core::clone::Clone>::clone(&self.e1e2),
+        }
+    }
+}
+impl ::core::marker::Copy for Rotor
+where
+    for<'__> f32: ::core::marker::Copy,
+{}
+impl ::core::fmt::Debug for Rotor
+where
+    for<'__> f32: ::core::fmt::Debug,
+{
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_struct("Rotor")
+            .field("s", &self.s)
+            .field("e0e1", &self.e0e1)
+            .field("e0e2", &self.e0e2)
+            .field("e1e2", &self.e1e2)
+            .finish()
+    }
 }
 impl Rotor {
     pub fn zero() -> Self {
