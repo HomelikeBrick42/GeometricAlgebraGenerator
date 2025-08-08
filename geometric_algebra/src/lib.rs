@@ -1,7 +1,7 @@
 mod ga;
 
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::{TokenStreamExt, format_ident, quote};
 use std::{cell::Cell, collections::HashMap, fmt::Write};
 use syn::{
     Attribute, Ident, LitInt, Token, Type, ext::IdentExt, parenthesized, parse::Parse,
@@ -9,18 +9,6 @@ use syn::{
 };
 
 use crate::ga::{Basis, SquaresTo};
-
-const GRADE_NAMES: &[&str] = &[
-    "Scalar",
-    "Vector",
-    "Bivector",
-    "Trivector",
-    "Quadvector",
-    "Pentavector",
-    "Hexavector",
-    "Heptavector",
-    "Octovector",
-];
 
 mod kw {
     use syn::custom_keyword;
@@ -559,13 +547,142 @@ fn generate_function(
         })
         .collect::<syn::Result<Vec<_>>>()?;
 
-    let return_group_type = groups
+    let _return_group_type = groups
         .iter()
-        .find(|&group| group.name == *return_group)
+        .position(|group| group.name == *return_group)
         .ok_or_else(|| syn::Error::new(return_group.span(), "Unknown group name"))?;
 
-    let value = {
-        quote! { ::core::todo!() }
+    let body = {
+        let mut names: HashMap<String, Box<dyn Fn() -> ga::Expression + '_>> =
+            HashMap::with_capacity(1 + elements.len() + argument_names_and_groups.len());
+
+        names.insert(
+            scalar_name.to_string(),
+            Box::new(|| ga::Expression {
+                terms: vec![ga::Term {
+                    values: vec![ga::Value::Constant(1)],
+                }],
+            }),
+        );
+        for (i, element) in elements.iter().enumerate() {
+            names.insert(
+                element.name.to_string(),
+                Box::new(move || ga::Expression {
+                    terms: vec![ga::Term {
+                        values: vec![ga::Value::Basis(ga::BasisIndex(i))],
+                    }],
+                }),
+            );
+        }
+
+        let mut id = 0usize;
+        let mut parameter_variables = vec![];
+        for &(name, group_index) in &argument_names_and_groups {
+            let group_member_bases = &group_member_bases[group_index];
+            let group_member_names = &group_member_names[group_index];
+
+            let mut expression = ga::Expression { terms: vec![] };
+
+            for i in 0..group_member_names.len() {
+                let group_member_base = &group_member_bases[i];
+
+                expression.terms.push(ga::Term {
+                    values: std::iter::once(ga::Value::Variable(format!("_{id}")))
+                        .chain(group_member_base.iter().copied().map(ga::Value::Basis))
+                        .collect(),
+                });
+
+                let group_member_name = &group_member_names[i];
+
+                let name = format_ident!("{name}");
+                let variable_name = format_ident!("_{id}");
+                parameter_variables.push(quote! {
+                    let #variable_name = #name.#group_member_name;
+                });
+
+                id += 1;
+            }
+
+            names.insert(name.to_string(), Box::new(move || expression.clone()));
+        }
+
+        for variable in variables {
+            let expression = eval_expression(&variable.value, &names, basis)?.simplify(basis);
+            names.insert(
+                variable.name.to_string(),
+                Box::new(move || expression.clone()),
+            );
+        }
+
+        let terms = eval_expression(&return_expr.value, &names, basis)?
+            .simplify(basis)
+            .split_into_ga_terms()
+            .into_iter()
+            .map(|term| {
+                let member_name = if term.bases.is_empty() {
+                    format_ident!("{scalar_name}")
+                } else {
+                    let mut name = String::new();
+                    for basis in term.bases {
+                        write!(name, "{}", elements[basis.0].name).unwrap();
+                    }
+                    format_ident!("{name}")
+                };
+
+                fn emit_value(value: &ga::Value, element_type: &Type) -> TokenStream {
+                    match value {
+                        ga::Value::Constant(value) => {
+                            let value = i8::try_from(*value).expect("constant should fit in an i8");
+                            quote! { <#element_type as ::core::convert::From<i8>>::from(#value) }
+                        }
+                        ga::Value::Variable(name) => {
+                            let name = format_ident!("{name}");
+                            quote! { #name }
+                        }
+                        ga::Value::Basis(_) => unreachable!(),
+                        ga::Value::Expression(_) => unreachable!(),
+                    }
+                }
+
+                fn emit_term(term: &ga::Term, element_type: &Type) -> TokenStream {
+                    let mut result = quote! {};
+                    result.append_separated(
+                        term.values
+                            .iter()
+                            .map(|value| emit_value(value, element_type)),
+                        quote! { * },
+                    );
+                    quote! { (#result) }
+                }
+
+                fn emit_expression(
+                    expression: &ga::Expression,
+                    element_type: &Type,
+                ) -> TokenStream {
+                    let mut result = quote! {};
+                    result.append_separated(
+                        expression
+                            .terms
+                            .iter()
+                            .map(|term| emit_term(term, element_type)),
+                        quote! { + },
+                    );
+                    result
+                }
+
+                let expression = emit_expression(&term.expression, element_type);
+                quote! { #member_name: #expression }
+            })
+            .collect::<Vec<_>>();
+
+        quote! {
+            #(#parameter_variables)*
+            #[allow(clippy::needless_update)]
+            #return_group {
+                #(#terms,)*
+                ..#return_group::zero()
+            }
+        }
     };
 
     let arguments = arguments
@@ -576,7 +693,7 @@ fn generate_function(
         .collect::<Vec<_>>();
     Ok(quote! {
         pub fn #name(#(#arguments,)*) -> #return_group {
-            #value
+            #body
         }
     })
 }
@@ -631,7 +748,7 @@ fn generate(
             members
                 .iter()
                 .map(|base| {
-                    Ok(if base.is_empty() {
+                    if base.is_empty() {
                         format_ident!("{scalar_name}")
                     } else {
                         let mut name = String::new();
@@ -639,11 +756,11 @@ fn generate(
                             write!(name, "{}", elements[basis.0].name).unwrap();
                         }
                         format_ident!("{name}")
-                    })
+                    }
                 })
-                .collect::<syn::Result<Vec<_>>>()
+                .collect::<Vec<_>>()
         })
-        .collect::<syn::Result<Vec<_>>>()?;
+        .collect::<Vec<_>>();
 
     let structs = groups
         .iter()
