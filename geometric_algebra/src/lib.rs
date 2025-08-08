@@ -402,13 +402,13 @@ fn eval_expression(
 }
 
 /// returns false for positive members, and true for ones that need to be negated before loading/storing
-fn get_group_member_names(
+fn get_group_member_bases(
     expression: &Expression,
     scalar_name: &Ident,
     elements: &[Element],
     groups: &[Group],
     basis: &Basis,
-) -> syn::Result<Vec<Ident>> {
+) -> syn::Result<Vec<Vec<ga::BasisIndex>>> {
     let id = &Cell::new(0usize);
     let mut names: HashMap<String, Box<dyn Fn() -> ga::Expression>> =
         HashMap::with_capacity(1 + elements.len() + groups.len());
@@ -461,23 +461,13 @@ fn get_group_member_names(
             }),
         );
     }
-    let names = eval_expression(expression, &names, basis)?
+    let bases = eval_expression(expression, &names, basis)?
         .simplify(basis)
         .split_into_ga_terms()
         .into_iter()
-        .map(|term| {
-            if term.bases.is_empty() {
-                format_ident!("{scalar_name}")
-            } else {
-                let mut name = String::new();
-                for ga::BasisIndex(index) in term.bases {
-                    write!(name, "{}", elements[index].name).unwrap();
-                }
-                format_ident!("{name}")
-            }
-        })
+        .map(|term| term.bases)
         .collect::<Vec<_>>();
-    Ok(names)
+    Ok(bases)
 }
 
 fn generate_group(
@@ -525,6 +515,7 @@ fn generate_group(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_function(
     Function {
         name,
@@ -537,6 +528,8 @@ fn generate_function(
     scalar_name: &Ident,
     elements: &[Element],
     groups: &[Group],
+    group_member_bases: &[Vec<Vec<ga::BasisIndex>>],
+    group_member_names: &[Vec<Ident>],
     basis: &Basis,
 ) -> syn::Result<TokenStream> {
     let argument_names_and_groups = arguments
@@ -560,7 +553,7 @@ fn generate_function(
 
             let group = groups
                 .iter()
-                .find(|&group| group.name == argument.group)
+                .position(|group| group.name == argument.group)
                 .ok_or_else(|| syn::Error::new(argument.group.span(), "Unknown group name"))?;
             Ok((&argument.name, group))
         })
@@ -571,6 +564,10 @@ fn generate_function(
         .find(|&group| group.name == *return_group)
         .ok_or_else(|| syn::Error::new(return_group.span(), "Unknown group name"))?;
 
+    let value = {
+        quote! { ::core::todo!() }
+    };
+
     let arguments = arguments
         .iter()
         .map(|Argument { name, group }| {
@@ -579,7 +576,7 @@ fn generate_function(
         .collect::<Vec<_>>();
     Ok(quote! {
         pub fn #name(#(#arguments,)*) -> #return_group {
-            ::core::todo!()
+            #value
         }
     })
 }
@@ -615,17 +612,36 @@ fn generate(
         bases: elements.iter().map(|element| element.squares_to).collect(),
     };
 
-    let group_member_names = groups
+    let group_member_bases = groups
         .iter()
         .enumerate()
         .map(|(i, group)| {
-            get_group_member_names(
+            get_group_member_bases(
                 &group.expression,
                 &scalar_name,
                 &elements,
                 &groups[..i],
                 &basis,
             )
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
+    let group_member_names = group_member_bases
+        .iter()
+        .map(|members| {
+            members
+                .iter()
+                .map(|base| {
+                    Ok(if base.is_empty() {
+                        format_ident!("{scalar_name}")
+                    } else {
+                        let mut name = String::new();
+                        for basis in base {
+                            write!(name, "{}", elements[basis.0].name).unwrap();
+                        }
+                        format_ident!("{name}")
+                    })
+                })
+                .collect::<syn::Result<Vec<_>>>()
         })
         .collect::<syn::Result<Vec<_>>>()?;
 
@@ -652,6 +668,8 @@ fn generate(
                 &scalar_name,
                 &elements,
                 &groups,
+                &group_member_bases,
+                &group_member_names,
                 &basis,
             )
         })
