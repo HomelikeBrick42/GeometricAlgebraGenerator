@@ -1,578 +1,849 @@
-use itertools::Itertools;
-use std::{
-    collections::{HashMap, VecDeque},
-    fmt::Display,
+mod ga;
+
+use proc_macro2::TokenStream;
+use quote::{TokenStreamExt, format_ident, quote};
+use std::{cell::Cell, collections::HashMap, fmt::Write};
+use syn::{
+    Attribute, Ident, LitInt, Token, Type, ext::IdentExt, parenthesized, parse::Parse,
+    parse_macro_input,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SquaresTo {
-    NegativeOne = -1,
-    Zero = 0,
-    PositiveOne = 1,
+use crate::ga::{Basis, SquaresTo};
+
+mod kw {
+    use syn::custom_keyword;
+
+    custom_keyword!(element_type);
+    custom_keyword!(scalar_name);
+    custom_keyword!(negative_one);
+    custom_keyword!(zero);
+    custom_keyword!(positive_one);
+    custom_keyword!(elements);
+    custom_keyword!(group);
 }
 
-impl SquaresTo {
-    pub fn multiply(self, other: Self) -> Self {
-        match (self, other) {
-            (SquaresTo::NegativeOne, SquaresTo::NegativeOne) => SquaresTo::PositiveOne,
-            (SquaresTo::Zero, _) | (_, SquaresTo::Zero) => SquaresTo::Zero,
-            (SquaresTo::PositiveOne, other) | (other, SquaresTo::PositiveOne) => other,
-        }
-    }
+struct Element {
+    name: Ident,
+    squares_to: SquaresTo,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Basis {
-    pub bases: Vec<SquaresTo>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BasisIndex(pub usize);
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Value {
-    Constant(isize),
-    Variable(String),
-    Basis(BasisIndex),
-    Expression(Expression),
-}
-
-impl Value {
-    pub fn reverse(&self) -> Self {
-        match *self {
-            Value::Constant(value) => Value::Constant(value),
-            Value::Variable(ref name) => Value::Variable(name.clone()),
-            Value::Basis(basis_index) => Value::Basis(basis_index),
-            Value::Expression(ref expression) => Value::Expression(expression.reverse()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Term {
-    pub values: Vec<Value>,
-}
-
-impl Term {
-    pub fn multiply(&self, other: &Self) -> Self {
-        Self {
-            values: self
-                .values
-                .iter()
-                .chain(other.values.iter())
-                .cloned()
-                .collect(),
-        }
-    }
-
-    pub fn simplify(&self, basis: &Basis) -> Self {
-        let mut new_values = self.values.clone();
-
-        let mut sign_change = SquaresTo::PositiveOne;
-        {
-            let mut were_duplicate_bases = false;
-
-            let mut swapped = true;
-            while swapped {
-                swapped = false;
-                for i in 1..new_values.len() {
-                    let a = &new_values[i - 1];
-                    let b = &new_values[i];
-
-                    // just dont try to reorder groups, wait until they are expanded
-                    if let (Value::Expression(_), _) | (_, Value::Expression(_)) = (a, b) {
-                        continue;
-                    }
-
-                    match a.cmp(b) {
-                        std::cmp::Ordering::Less => {}
-                        std::cmp::Ordering::Equal => {
-                            if let (Value::Basis(_), Value::Basis(_)) = (a, b) {
-                                were_duplicate_bases = true;
-                            }
-                        }
-                        std::cmp::Ordering::Greater => {
-                            if let (Value::Basis(_), Value::Basis(_)) = (a, b) {
-                                sign_change = sign_change.multiply(SquaresTo::NegativeOne);
-                            }
-
-                            new_values.swap(i - 1, i);
-                            swapped = true;
-                        }
-                    }
-                }
+impl Parse for Element {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let ident = input.parse::<Ident>()?;
+        input.parse::<Token![=]>()?;
+        let squares_to = {
+            let lookahead = input.lookahead1();
+            if lookahead.peek(kw::negative_one) {
+                input.parse::<kw::negative_one>()?;
+                SquaresTo::NegativeOne
+            } else if lookahead.peek(kw::zero) {
+                input.parse::<kw::zero>()?;
+                SquaresTo::Zero
+            } else if lookahead.peek(kw::positive_one) {
+                input.parse::<kw::positive_one>()?;
+                SquaresTo::PositiveOne
+            } else {
+                return Err(lookahead.error());
             }
-
-            if were_duplicate_bases {
-                let mut i = 1;
-                while i < new_values.len() {
-                    let a = &new_values[i - 1];
-                    let b = &new_values[i];
-
-                    if let (Value::Basis(a), Value::Basis(b)) = (a, b)
-                        && a == b
-                    {
-                        sign_change = sign_change.multiply(basis.bases[a.0]);
-                        new_values.drain(i - 1..=i);
-                    } else {
-                        i += 1;
-                    }
-                }
-            }
-        }
-
-        let mut new_values = VecDeque::from(new_values);
-
-        let mut constant = match sign_change {
-            SquaresTo::NegativeOne => -1,
-            SquaresTo::Zero => 0,
-            SquaresTo::PositiveOne => 1,
         };
-
-        // all numbers should be at the front of the list, so combine them
-        while let Some(&Value::Constant(value)) = new_values.front() {
-            new_values.pop_front();
-            constant *= value;
-        }
-
-        if constant != 1 {
-            new_values.push_front(Value::Constant(constant));
-        }
-
-        Self {
-            values: new_values.into(),
-        }
-    }
-
-    pub fn reverse(&self) -> Self {
-        Self {
-            values: self.values.iter().rev().map(Value::reverse).collect(),
-        }
+        Ok(Element {
+            name: ident,
+            squares_to,
+        })
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Expression {
-    pub terms: Vec<Term>,
+struct Group {
+    attrs: Vec<Attribute>,
+    name: Ident,
+    expression: Expression,
 }
 
-impl Expression {
-    pub fn add(&self, other: &Self) -> Self {
-        Self {
-            terms: self
-                .terms
-                .iter()
-                .chain(other.terms.iter())
-                .cloned()
-                .collect(),
-        }
+impl Parse for Group {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        input.parse::<kw::group>()?;
+
+        let attrs = input.call(Attribute::parse_outer)?;
+
+        let name = input.parse::<Ident>()?;
+        input.parse::<Token![=]>()?;
+
+        let expression = input.parse::<Expression>()?;
+
+        input.parse::<Token![;]>()?;
+        Ok(Group {
+            attrs,
+            name,
+            expression,
+        })
     }
+}
 
-    pub fn multiply(&self, other: &Self) -> Self {
-        Self {
-            terms: vec![Term {
-                values: vec![
-                    Value::Expression(self.clone()),
-                    Value::Expression(other.clone()),
-                ],
-            }],
-        }
+struct Argument {
+    name: Ident,
+    group: Ident,
+}
+
+impl Parse for Argument {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let name = input.parse::<Ident>()?;
+        input.parse::<Token![:]>()?;
+        let group = input.parse::<Ident>()?;
+        Ok(Argument { name, group })
     }
+}
 
-    pub fn simplify(&self, basis: &Basis) -> Self {
-        let mut result = self.clone();
+enum Expression {
+    Name(Ident),
+    Constant(isize),
+    Add {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+    Sub {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+    Mul {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+    Inner {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+    Wedge {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+    Regressive {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+    Negate {
+        operand: Box<Expression>,
+    },
+    Reverse {
+        operand: Box<Expression>,
+    },
+    Dual {
+        operand: Box<Expression>,
+    },
+}
 
-        while {
-            let mut new_terms = result
-                .terms
-                .iter()
-                .map(|term| term.simplify(basis))
-                .collect::<Vec<_>>();
-
-            // all constants should be at the front of the list
-            new_terms.retain(|term| !matches!(term.values.first(), Some(Value::Constant(0))));
-
-            'simplification: {
-                for (term_index, term) in new_terms.iter().enumerate() {
-                    for (value_index, value) in term.values.iter().enumerate() {
-                        if let Value::Expression(_) = value {
-                            let mut before_terms = term.values.clone();
-                            let after_terms = before_terms.split_off(value_index + 1);
-
-                            let Some(Value::Expression(expression)) = before_terms.pop() else {
-                                unreachable!()
-                            };
-
-                            for term in &expression.terms {
-                                new_terms.push(
-                                    Term {
-                                        values: before_terms.clone(),
-                                    }
-                                    .multiply(term)
-                                    .multiply(&Term {
-                                        values: after_terms.clone(),
-                                    }),
-                                );
-                            }
-
-                            new_terms.remove(term_index);
-                            break 'simplification;
-                        }
-                    }
+impl Parse for Expression {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        fn primary_expression(input: syn::parse::ParseStream) -> syn::Result<Expression> {
+            let lookahead = input.lookahead1();
+            Ok(if lookahead.peek(Ident::peek_any) {
+                Expression::Name(input.parse()?)
+            } else if lookahead.peek(LitInt) {
+                Expression::Constant(input.parse::<LitInt>()?.base10_parse()?)
+            } else if lookahead.peek(syn::token::Paren) {
+                let expression_tokens;
+                parenthesized!(expression_tokens in input);
+                expression_tokens.parse::<Expression>()?
+            } else if lookahead.peek(Token![-]) {
+                input.parse::<Token![-]>()?;
+                let operand = primary_expression(input)?;
+                Expression::Negate {
+                    operand: Box::new(operand),
                 }
-
-                for i in 0..new_terms.len() {
-                    let mut a = new_terms[i].values.as_slice();
-                    let mut a_constant = 1;
-                    while let Some(Value::Constant(value)) = a.first() {
-                        a_constant *= value;
-                        a = &a[1..];
-                    }
-
-                    for j in i + 1..new_terms.len() {
-                        let mut b = new_terms[j].values.as_slice();
-                        let mut b_constant = 1;
-                        while let Some(Value::Constant(value)) = b.first() {
-                            b_constant *= value;
-                            b = &b[1..];
-                        }
-
-                        if a == b {
-                            let new_term = Term {
-                                values: std::iter::once(Value::Constant(a_constant + b_constant))
-                                    .chain(a.iter().cloned())
-                                    .collect(),
-                            };
-                            new_terms.remove(j);
-                            new_terms.remove(i);
-                            new_terms.push(new_term);
-                            break 'simplification;
-                        }
-                    }
+            } else if lookahead.peek(Token![~]) {
+                input.parse::<Token![~]>()?;
+                let operand = primary_expression(input)?;
+                Expression::Reverse {
+                    operand: Box::new(operand),
                 }
-            }
-
-            new_terms.sort_by(|a, b| a.values.len().cmp(&b.values.len()).then(a.cmp(b)));
-            let changed = result.terms != new_terms;
-            result = Expression { terms: new_terms };
-            changed
-        } {}
-
-        result
-    }
-
-    pub fn reverse(&self) -> Self {
-        Self {
-            terms: self.terms.iter().map(Term::reverse).collect(),
-        }
-    }
-
-    /// must only be called once expression is simplified
-    pub fn split_into_ga_terms(&self) -> Vec<GATerm> {
-        let mut hashmap = HashMap::<Vec<BasisIndex>, GATerm>::new();
-
-        for term in &self.terms {
-            let mut bases = vec![];
-            let mut non_bases = vec![];
-
-            for value in &term.values {
-                match *value {
-                    Value::Expression(_) => panic!("there should be no nested expressions"),
-                    Value::Basis(basis) => bases.push(basis),
-                    ref value => non_bases.push(value.clone()),
+            } else if lookahead.peek(Token![!]) {
+                input.parse::<Token![!]>()?;
+                let operand = primary_expression(input)?;
+                Expression::Dual {
+                    operand: Box::new(operand),
                 }
-            }
-
-            let ga_term = hashmap.entry(bases.clone()).or_insert_with(|| GATerm {
-                bases,
-                expression: Expression { terms: vec![] },
-            });
-            ga_term.expression.terms.push(Term { values: non_bases });
-        }
-
-        let mut terms = hashmap
-            .into_values()
-            .map(|mut term| {
-                term.expression
-                    .terms
-                    .sort_by(|a, b| a.values.len().cmp(&b.values.len()).then(a.cmp(b)));
-                term
+            } else {
+                return Err(lookahead.error());
             })
-            .collect::<Vec<_>>();
-        terms.sort_by(|a, b| {
-            a.bases
-                .len()
-                .cmp(&b.bases.len())
-                .then_with(|| a.bases.cmp(&b.bases))
-        });
-        terms
-    }
-
-    pub fn generate_grade(basis: &Basis, grade: usize, offset: &mut usize) -> Self {
-        Self {
-            terms: basis
-                .bases
-                .iter()
-                .enumerate()
-                .map(|(i, _)| BasisIndex(i))
-                .combinations(grade)
-                .map(|basis| {
-                    let mut values = basis.into_iter().map(Value::Basis).collect::<Vec<_>>();
-                    values.push(Value::Variable(format!("_{offset}")));
-                    *offset += 1;
-                    Term { values }
-                })
-                .collect(),
         }
+
+        fn binary_operator(input: syn::parse::ParseStream) -> syn::Result<Expression> {
+            let left = primary_expression(input)?;
+            Ok(if input.peek(Token![*]) {
+                input.parse::<Token![*]>()?;
+                let right = primary_expression(input)?;
+                Expression::Mul {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
+            } else if input.peek(Token![|]) {
+                input.parse::<Token![|]>()?;
+                let right = primary_expression(input)?;
+                Expression::Inner {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
+            } else if input.peek(Token![^]) {
+                input.parse::<Token![^]>()?;
+                let right = primary_expression(input)?;
+                Expression::Wedge {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
+            } else if input.peek(Token![&]) {
+                input.parse::<Token![&]>()?;
+                let right = primary_expression(input)?;
+                Expression::Regressive {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
+            } else {
+                left
+            })
+        }
+
+        let mut left = binary_operator(input)?;
+        loop {
+            if input.peek(Token![+]) {
+                input.parse::<Token![+]>()?;
+                let right = binary_operator(input)?;
+                left = Self::Add {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                };
+            } else if input.peek(Token![-]) {
+                input.parse::<Token![-]>()?;
+                let right = binary_operator(input)?;
+                left = Self::Sub {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                };
+            } else {
+                break;
+            };
+        }
+        Ok(left)
     }
+}
 
-    pub fn grade_part(&self, grade: usize) -> Expression {
-        Self {
-            terms: self
-                .split_into_ga_terms()
-                .into_iter()
-                .filter_map(|term| {
-                    if term.bases.len() != grade {
-                        return None;
-                    }
+struct Variable {
+    name: Ident,
+    value: Expression,
+}
 
-                    Some(Term {
+impl Parse for Variable {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        input.parse::<Token![let]>()?;
+        let name = input.call(Ident::parse_any)?;
+        input.parse::<Token![=]>()?;
+        let value = input.parse::<Expression>()?;
+        input.parse::<Token![;]>()?;
+        Ok(Variable { name, value })
+    }
+}
+
+struct Return {
+    value: Expression,
+}
+
+impl Parse for Return {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        input.parse::<Token![return]>()?;
+        let value = input.parse::<Expression>()?;
+        input.parse::<Token![;]>()?;
+        Ok(Return { value })
+    }
+}
+
+struct Function {
+    name: Ident,
+    arguments: Vec<Argument>,
+    return_group: Ident,
+    variables: Vec<Variable>,
+    return_expr: Return,
+}
+
+impl Parse for Function {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        input.parse::<Token![fn]>()?;
+        let name = input.parse::<Ident>()?;
+
+        let arguments_tokens;
+        syn::parenthesized!(arguments_tokens in input);
+        let arguments = arguments_tokens
+            .parse_terminated(Argument::parse, Token![,])?
+            .into_iter()
+            .collect::<Vec<_>>();
+
+        input.parse::<Token![->]>()?;
+        let return_group = input.parse::<Ident>()?;
+
+        let mut variables = vec![];
+        let mut return_expr = None;
+
+        let body_tokens;
+        syn::braced!(body_tokens in input);
+        while !body_tokens.is_empty() {
+            let lookahead = body_tokens.lookahead1();
+            if lookahead.peek(Token![let]) {
+                variables.push(body_tokens.parse::<Variable>()?);
+            } else if lookahead.peek(Token![return]) {
+                return_expr = Some(body_tokens.parse::<Return>()?);
+                break;
+            } else {
+                return Err(lookahead.error());
+            }
+        }
+
+        let return_expr = return_expr.ok_or_else(|| {
+            syn::Error::new(
+                body_tokens.span(),
+                "There must be a `return` as the last statement in the body",
+            )
+        })?;
+
+        Ok(Function {
+            name,
+            arguments,
+            return_group,
+            variables,
+            return_expr,
+        })
+    }
+}
+
+struct GaInput {
+    element_type: Type,
+    scalar_name: Ident,
+    elements: Vec<Element>,
+    groups: Vec<Group>,
+    functions: Vec<Function>,
+}
+
+impl Parse for GaInput {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        input.parse::<kw::element_type>()?;
+        input.parse::<Token![=]>()?;
+        let element_type = input.parse::<Type>()?;
+        input.parse::<Token![;]>()?;
+
+        input.parse::<kw::scalar_name>()?;
+        input.parse::<Token![=]>()?;
+        let scalar_name = input.parse::<Ident>()?;
+        input.parse::<Token![;]>()?;
+
+        input.parse::<kw::elements>()?;
+        input.parse::<Token![=]>()?;
+        let elements_tokens;
+        syn::bracketed!(elements_tokens in input);
+        let elements = elements_tokens
+            .parse_terminated(Element::parse, Token![,])?
+            .into_iter()
+            .collect::<Vec<_>>();
+        input.parse::<Token![;]>()?;
+
+        let mut groups = vec![];
+        let mut functions = vec![];
+        while !input.is_empty() {
+            let lookahead = input.lookahead1();
+            if lookahead.peek(kw::group) {
+                groups.push(input.parse::<Group>()?);
+            } else if lookahead.peek(Token![fn]) {
+                functions.push(input.parse::<Function>()?);
+            } else {
+                return Err(lookahead.error());
+            }
+        }
+
+        Ok(GaInput {
+            element_type,
+            scalar_name,
+            elements,
+            groups,
+            functions,
+        })
+    }
+}
+
+fn eval_expression(
+    expression: &Expression,
+    names: &HashMap<String, Box<dyn Fn() -> ga::Expression + '_>>,
+    basis: &Basis,
+) -> syn::Result<ga::Expression> {
+    Ok(match expression {
+        Expression::Name(ident) => names
+            .get(&ident.to_string())
+            .ok_or_else(|| syn::Error::new(ident.span(), "Unknown name"))?(
+        ),
+        Expression::Constant(value) => ga::Expression {
+            terms: vec![ga::Term {
+                values: vec![ga::Value::Constant(*value)],
+            }],
+        },
+        Expression::Add { left, right } => {
+            let left = eval_expression(left, names, basis)?;
+            let right = eval_expression(right, names, basis)?;
+            left.add(&right)
+        }
+        Expression::Sub { left, right } => {
+            let left = eval_expression(left, names, basis)?;
+            let right = eval_expression(right, names, basis)?;
+            left.add(&right.multiply(&ga::Expression {
+                terms: vec![ga::Term {
+                    values: vec![ga::Value::Constant(-1)],
+                }],
+            }))
+        }
+        Expression::Mul { left, right } => {
+            let left = eval_expression(left, names, basis)?;
+            let right = eval_expression(right, names, basis)?;
+            left.multiply(&right)
+        }
+        Expression::Inner { left, right } => {
+            let left = eval_expression(left, names, basis)?.simplify(basis);
+            let right = eval_expression(right, names, basis)?.simplify(basis);
+            left.inner(&right, basis)
+        }
+        Expression::Wedge { left, right } => {
+            let left = eval_expression(left, names, basis)?.simplify(basis);
+            let right = eval_expression(right, names, basis)?.simplify(basis);
+            left.wedge(&right, basis)
+        }
+        Expression::Regressive { left, right } => {
+            let left = eval_expression(left, names, basis)?.simplify(basis);
+            let right = eval_expression(right, names, basis)?.simplify(basis);
+            left.regressive(&right, basis)
+        }
+        Expression::Negate { operand } => {
+            let operand = eval_expression(operand, names, basis)?;
+            operand.multiply(&ga::Expression {
+                terms: vec![ga::Term {
+                    values: vec![ga::Value::Constant(-1)],
+                }],
+            })
+        }
+        Expression::Reverse { operand } => {
+            let operand = eval_expression(operand, names, basis)?.simplify(basis);
+            operand.reverse()
+        }
+        Expression::Dual { operand } => {
+            let operand = eval_expression(operand, names, basis)?.simplify(basis);
+            operand.dual(basis)
+        }
+    })
+}
+
+/// returns false for positive members, and true for ones that need to be negated before loading/storing
+fn get_group_member_bases(
+    expression: &Expression,
+    scalar_name: &Ident,
+    elements: &[Element],
+    groups: &[Group],
+    basis: &Basis,
+) -> syn::Result<Vec<Vec<ga::BasisIndex>>> {
+    let id = &Cell::new(0usize);
+    let mut names: HashMap<String, Box<dyn Fn() -> ga::Expression>> =
+        HashMap::with_capacity(1 + elements.len() + groups.len());
+    names.insert(
+        scalar_name.to_string(),
+        Box::new(|| {
+            let variable = ga::Value::Variable(format!("_{}", id.get()));
+            id.set(id.get() + 1);
+            ga::Expression {
+                terms: vec![ga::Term {
+                    values: vec![variable],
+                }],
+            }
+        }),
+    );
+    for (i, element) in elements.iter().enumerate() {
+        names.insert(
+            element.name.to_string(),
+            Box::new(move || {
+                let variable = ga::Value::Variable(format!("_{}", id.get()));
+                id.set(id.get() + 1);
+                ga::Expression {
+                    terms: vec![ga::Term {
+                        values: vec![ga::Value::Basis(ga::BasisIndex(i)), variable],
+                    }],
+                }
+            }),
+        );
+    }
+    for group in groups {
+        let expression = eval_expression(&group.expression, &names, basis)?.simplify(basis);
+        names.insert(
+            group.name.to_string(),
+            Box::new(move || ga::Expression {
+                terms: expression
+                    .split_into_ga_terms()
+                    .into_iter()
+                    .map(|term| ga::Term {
                         values: term
                             .bases
                             .into_iter()
-                            .map(Value::Basis)
-                            .chain(std::iter::once(Value::Expression(term.expression)))
+                            .flat_map(|basis| {
+                                let variable = ga::Value::Variable(format!("_{}", id.get()));
+                                id.set(id.get() + 1);
+                                [ga::Value::Basis(basis), variable]
+                            })
                             .collect(),
                     })
-                })
-                .collect(),
+                    .collect(),
+            }),
+        );
+    }
+    let bases = eval_expression(expression, &names, basis)?
+        .simplify(basis)
+        .split_into_ga_terms()
+        .into_iter()
+        .map(|term| term.bases)
+        .collect::<Vec<_>>();
+    Ok(bases)
+}
+
+fn generate_group(
+    Group {
+        attrs,
+        name,
+        expression: _,
+    }: &Group,
+    element_type: &Type,
+    scalar_name: &Ident,
+    elements: &[Element],
+    group_member_names: &[Ident],
+) -> syn::Result<TokenStream> {
+    if scalar_name == name {
+        return Err(syn::Error::new(
+            name.span(),
+            "Group name cannot be the same as scalar name",
+        ));
+    }
+
+    for element in elements {
+        if element.name == *name {
+            return Err(syn::Error::new(
+                name.span(),
+                "Group name cannot be the same as an element name",
+            ));
         }
     }
 
-    pub fn wedge(&self, other: &Self, basis: &Basis) -> Self {
-        let a = self.split_into_ga_terms();
-        let b = other.split_into_ga_terms();
-        let mut terms = vec![];
-        for a in &a {
-            for b in &b {
-                let a_grade = a.bases.len();
-                let b_grade = b.bases.len();
+    let name_without_span = format_ident!("{}", name.to_string());
+    Ok(quote! {
+        #(#attrs)*
+        pub struct #name {
+            #(#group_member_names: #element_type,)*
+        }
 
-                let a_values = Expression {
-                    terms: vec![Term {
-                        values: a
-                            .bases
-                            .iter()
-                            .cloned()
-                            .map(Value::Basis)
-                            .chain(std::iter::once(Value::Expression(a.expression.clone())))
-                            .collect(),
-                    }],
-                };
-                let b_values = Expression {
-                    terms: vec![Term {
-                        values: b
-                            .bases
-                            .iter()
-                            .cloned()
-                            .map(Value::Basis)
-                            .chain(std::iter::once(Value::Expression(b.expression.clone())))
-                            .collect(),
-                    }],
-                };
-                terms.extend(
-                    a_values
-                        .multiply(&b_values)
-                        .simplify(basis)
-                        .grade_part(a_grade + b_grade)
-                        .simplify(basis)
-                        .terms,
-                );
+        // the name_without_span is to prevent hovering over the group name repeating the type defintion twice
+        impl #name_without_span {
+            pub fn zero() -> Self {
+                Self {
+                    #(#group_member_names: <#element_type as ::core::convert::From<i8>>::from(0),)*
+                }
             }
         }
-        Self { terms }
-    }
+    })
+}
 
-    pub fn inner(&self, other: &Self, basis: &Basis) -> Self {
-        let a = self.split_into_ga_terms();
-        let b = other.split_into_ga_terms();
-        let mut terms = vec![];
-        for a in &a {
-            for b in &b {
-                let a_grade = a.bases.len();
-                let b_grade = b.bases.len();
-
-                let a_values = Expression {
-                    terms: vec![Term {
-                        values: a
-                            .bases
-                            .iter()
-                            .cloned()
-                            .map(Value::Basis)
-                            .chain(std::iter::once(Value::Expression(a.expression.clone())))
-                            .collect(),
-                    }],
-                };
-                let b_values = Expression {
-                    terms: vec![Term {
-                        values: b
-                            .bases
-                            .iter()
-                            .cloned()
-                            .map(Value::Basis)
-                            .chain(std::iter::once(Value::Expression(b.expression.clone())))
-                            .collect(),
-                    }],
-                };
-                terms.extend(
-                    a_values
-                        .multiply(&b_values)
-                        .simplify(basis)
-                        .grade_part(a_grade.abs_diff(b_grade))
-                        .simplify(basis)
-                        .terms,
-                );
+#[allow(clippy::too_many_arguments)]
+fn generate_function(
+    Function {
+        name,
+        arguments,
+        return_group,
+        variables,
+        return_expr,
+    }: &Function,
+    element_type: &Type,
+    scalar_name: &Ident,
+    elements: &[Element],
+    groups: &[Group],
+    group_member_bases: &[Vec<Vec<ga::BasisIndex>>],
+    group_member_names: &[Vec<Ident>],
+    basis: &Basis,
+) -> syn::Result<TokenStream> {
+    let argument_names_and_groups = arguments
+        .iter()
+        .map(|argument| {
+            if argument.name == *scalar_name {
+                return Err(syn::Error::new(
+                    argument.name.span(),
+                    "Cannot have an argument with the same name as the scalar name",
+                ));
             }
+
+            for group in groups {
+                if argument.name == group.name {
+                    return Err(syn::Error::new(
+                        argument.name.span(),
+                        "Cannot have an argument with the same name as a group name",
+                    ));
+                }
+            }
+
+            let group = groups
+                .iter()
+                .position(|group| group.name == argument.group)
+                .ok_or_else(|| syn::Error::new(argument.group.span(), "Unknown group name"))?;
+            Ok((&argument.name, group))
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
+
+    let _return_group_type = groups
+        .iter()
+        .position(|group| group.name == *return_group)
+        .ok_or_else(|| syn::Error::new(return_group.span(), "Unknown group name"))?;
+
+    let body = {
+        let mut names: HashMap<String, Box<dyn Fn() -> ga::Expression + '_>> =
+            HashMap::with_capacity(1 + elements.len() + argument_names_and_groups.len());
+
+        names.insert(
+            scalar_name.to_string(),
+            Box::new(|| ga::Expression {
+                terms: vec![ga::Term {
+                    values: vec![ga::Value::Constant(1)],
+                }],
+            }),
+        );
+        for (i, element) in elements.iter().enumerate() {
+            names.insert(
+                element.name.to_string(),
+                Box::new(move || ga::Expression {
+                    terms: vec![ga::Term {
+                        values: vec![ga::Value::Basis(ga::BasisIndex(i))],
+                    }],
+                }),
+            );
         }
-        Self { terms }
-    }
 
-    pub fn dual(&self, basis: &Basis) -> Self {
-        Self {
-            terms: self
-                .split_into_ga_terms()
-                .into_iter()
-                .map(|term| {
-                    let mut new_basis = Term {
-                        values: basis
-                            .bases
-                            .iter()
-                            .enumerate()
-                            .map(|(i, _)| BasisIndex(i))
-                            .filter(|basis| {
-                                term.bases
-                                    .iter()
-                                    .all(|other_basis| basis.0 != other_basis.0)
-                            })
-                            .map(Value::Basis)
-                            .collect::<Vec<_>>(),
-                    }
-                    .simplify(basis);
-                    let term_bases = Term {
-                        values: term
-                            .bases
-                            .into_iter()
-                            .map(Value::Basis)
-                            .chain(new_basis.values.clone())
-                            .collect(),
-                    }
-                    .simplify(basis);
+        let mut id = 0usize;
+        let mut parameter_variables = vec![];
+        for &(name, group_index) in &argument_names_and_groups {
+            let group_member_bases = &group_member_bases[group_index];
+            let group_member_names = &group_member_names[group_index];
 
-                    if let Value::Constant(-1) = term_bases.values[0] {
-                        new_basis.values.push(Value::Constant(-1));
-                    }
-                    new_basis.values.push(Value::Expression(term.expression));
-                    new_basis
-                })
-                .collect(),
+            let mut expression = ga::Expression { terms: vec![] };
+
+            for i in 0..group_member_names.len() {
+                let group_member_base = &group_member_bases[i];
+
+                expression.terms.push(ga::Term {
+                    values: std::iter::once(ga::Value::Variable(format!("_{id}")))
+                        .chain(group_member_base.iter().copied().map(ga::Value::Basis))
+                        .collect(),
+                });
+
+                let group_member_name = &group_member_names[i];
+
+                let name = format_ident!("{name}");
+                let variable_name = format_ident!("_{id}");
+                parameter_variables.push(quote! {
+                    let #variable_name = #name.#group_member_name;
+                });
+
+                id += 1;
+            }
+
+            names.insert(name.to_string(), Box::new(move || expression.clone()));
         }
-    }
 
-    pub fn dual_inverse(&self, basis: &Basis) -> Self {
-        Self {
-            terms: self
-                .split_into_ga_terms()
-                .into_iter()
-                .map(|term| {
-                    let mut new_basis = Term {
-                        values: basis
-                            .bases
-                            .iter()
-                            .enumerate()
-                            .map(|(i, _)| BasisIndex(i))
-                            .filter(|basis| {
-                                term.bases
-                                    .iter()
-                                    .all(|other_basis| basis.0 != other_basis.0)
-                            })
-                            .map(Value::Basis)
-                            .collect::<Vec<_>>(),
-                    }
-                    .simplify(basis);
-                    let term_bases = Term {
-                        values: new_basis
-                            .values
-                            .iter()
-                            .cloned()
-                            .chain(term.bases.into_iter().map(Value::Basis))
-                            .collect(),
-                    }
-                    .simplify(basis);
-
-                    if let Value::Constant(-1) = term_bases.values[0] {
-                        new_basis.values.push(Value::Constant(-1));
-                    }
-                    new_basis.values.push(Value::Expression(term.expression));
-                    new_basis
-                })
-                .collect(),
+        for variable in variables {
+            let expression = eval_expression(&variable.value, &names, basis)?.simplify(basis);
+            names.insert(
+                variable.name.to_string(),
+                Box::new(move || expression.clone()),
+            );
         }
-    }
 
-    pub fn regressive(&self, other: &Self, basis: &Basis) -> Self {
-        self.dual(basis)
+        let terms = eval_expression(&return_expr.value, &names, basis)?
             .simplify(basis)
-            .wedge(&other.dual(basis).simplify(basis), basis)
-            .simplify(basis)
-            .dual_inverse(basis)
-    }
-}
+            .split_into_ga_terms()
+            .into_iter()
+            .map(|term| {
+                let member_name = if term.bases.is_empty() {
+                    format_ident!("{scalar_name}")
+                } else {
+                    let mut name = String::new();
+                    for basis in term.bases {
+                        write!(name, "{}", elements[basis.0].name).unwrap();
+                    }
+                    format_ident!("{name}")
+                };
 
-#[derive(Debug, Clone)]
-pub struct GATerm {
-    pub bases: Vec<BasisIndex>,
-    pub expression: Expression,
-}
+                fn emit_value(value: &ga::Value, element_type: &Type) -> TokenStream {
+                    match value {
+                        ga::Value::Constant(value) => {
+                            let value = i8::try_from(*value).expect("constant should fit in an i8");
+                            quote! { <#element_type as ::core::convert::From<i8>>::from(#value) }
+                        }
+                        ga::Value::Variable(name) => {
+                            let name = format_ident!("{name}");
+                            quote! { #name }
+                        }
+                        ga::Value::Basis(_) => unreachable!(),
+                        ga::Value::Expression(_) => unreachable!(),
+                    }
+                }
 
-impl Display for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self {
-            Value::Variable(ref name) => write!(f, "{name}"),
-            Value::Constant(value) => write!(f, "{value}"),
-            Value::Expression(ref expression) => write!(f, "({expression})"),
-            Value::Basis(BasisIndex(index)) => write!(f, "e{index}"),
-        }
-    }
-}
+                fn emit_term(term: &ga::Term, element_type: &Type) -> TokenStream {
+                    let mut result = quote! {};
+                    result.append_separated(
+                        term.values
+                            .iter()
+                            .map(|value| emit_value(value, element_type)),
+                        quote! { * },
+                    );
+                    quote! { (#result) }
+                }
 
-impl Display for Term {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.values.is_empty() {
-            return write!(f, "1");
-        }
+                fn emit_expression(
+                    expression: &ga::Expression,
+                    element_type: &Type,
+                ) -> TokenStream {
+                    let mut result = quote! {};
+                    result.append_separated(
+                        expression
+                            .terms
+                            .iter()
+                            .map(|term| emit_term(term, element_type)),
+                        quote! { + },
+                    );
+                    result
+                }
 
-        for (i, value) in self.values.iter().enumerate() {
-            if i > 0 {
-                write!(f, "*")?;
+                let expression = emit_expression(&term.expression, element_type);
+                quote! { #member_name: #expression }
+            })
+            .collect::<Vec<_>>();
+
+        quote! {
+            #(#parameter_variables)*
+            #[allow(clippy::needless_update)]
+            #return_group {
+                #(#terms,)*
+                ..#return_group::zero()
             }
-            write!(f, "{value}")?;
         }
-        Ok(())
-    }
+    };
+
+    let arguments = arguments
+        .iter()
+        .map(|Argument { name, group }| {
+            quote! { #name: #group }
+        })
+        .collect::<Vec<_>>();
+    Ok(quote! {
+        pub fn #name(#(#arguments,)*) -> #return_group {
+            #body
+        }
+    })
 }
 
-impl Display for Expression {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.terms.is_empty() {
-            return write!(f, "0");
+fn generate(
+    GaInput {
+        element_type,
+        scalar_name,
+        elements,
+        groups,
+        functions,
+    }: GaInput,
+) -> syn::Result<TokenStream> {
+    for (i, element) in elements.iter().enumerate() {
+        if element.name == scalar_name {
+            return Err(syn::Error::new(
+                element.name.span(),
+                "Element name cannot be the same as the scalar name",
+            ));
         }
 
-        for (i, term) in self.terms.iter().enumerate() {
-            if i > 0 {
-                write!(f, " + ")?;
+        for other in &elements[..i] {
+            if element.name == other.name {
+                return Err(syn::Error::new(
+                    element.name.span(),
+                    "Cannot repeat element names",
+                ));
             }
-            write!(f, "{term}")?;
         }
-        Ok(())
     }
+
+    let basis = Basis {
+        bases: elements.iter().map(|element| element.squares_to).collect(),
+    };
+
+    let group_member_bases = groups
+        .iter()
+        .enumerate()
+        .map(|(i, group)| {
+            get_group_member_bases(
+                &group.expression,
+                &scalar_name,
+                &elements,
+                &groups[..i],
+                &basis,
+            )
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
+    let group_member_names = group_member_bases
+        .iter()
+        .map(|members| {
+            members
+                .iter()
+                .map(|base| {
+                    if base.is_empty() {
+                        format_ident!("{scalar_name}")
+                    } else {
+                        let mut name = String::new();
+                        for basis in base {
+                            write!(name, "{}", elements[basis.0].name).unwrap();
+                        }
+                        format_ident!("{name}")
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    let structs = groups
+        .iter()
+        .enumerate()
+        .map(|(i, group)| {
+            generate_group(
+                group,
+                &element_type,
+                &scalar_name,
+                &elements,
+                &group_member_names[i],
+            )
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
+
+    let functions = functions
+        .iter()
+        .map(|function| {
+            generate_function(
+                function,
+                &element_type,
+                &scalar_name,
+                &elements,
+                &groups,
+                &group_member_bases,
+                &group_member_names,
+                &basis,
+            )
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
+
+    Ok(quote! {
+        #(#structs)*
+        #(#functions)*
+    })
+}
+
+#[proc_macro]
+pub fn ga(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    generate(parse_macro_input!(tokens))
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
 }
