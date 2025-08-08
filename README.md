@@ -1,7 +1,7 @@
-# `geometric_algebra`
+# `ga_generator`
 
-[![Latest Version](https://img.shields.io/crates/v/geometric_algebra.svg)](https://crates.io/crates/geometric_algebra)
-[![Rust Documentation](https://docs.rs/geometric_algebra/badge.svg)](https://docs.rs/geometric_algebra)
+[![Latest Version](https://img.shields.io/crates/v/ga_generator.svg)](https://crates.io/crates/ga_generator)
+[![Rust Documentation](https://docs.rs/ga_generator/badge.svg)](https://docs.rs/ga_generator)
 ![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)
 
 A crate for generating geometric algebra equations for any algebra and dimension
