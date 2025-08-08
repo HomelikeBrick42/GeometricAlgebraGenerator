@@ -6,17 +6,16 @@ version = 4
 name = "ga_generator"
 version = "0.1.0"
 dependencies = [
- "geometric_algebra",
+ "proc-macro2",
+ "quote",
  "syn",
 ]
 
 [[package]]
-name = "geometric_algebra"
+name = "ga_testing"
 version = "0.1.0"
 dependencies = [
- "proc-macro2",
- "quote",
- "syn",
+ "ga_generator",
 ]
 
 [[package]]

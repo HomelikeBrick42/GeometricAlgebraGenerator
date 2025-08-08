@@ -1,15 +1,17 @@
 [workspace]
 resolver = "3"
-members = ["geometric_algebra"]
+members = ["ga_generator"]
+package.description = "A crate for generating geometric algebra equations for any algebra and dimension"
+package.license = "MIT"
+package.repository = "https://github.com/HomelikeBrick42/Thallium"
 
 [workspace.dependencies]
-geometric_algebra = { path = "./geometric_algebra", version = "0.1.0" }
+ga_generator = { path = "./ga_generator", version = "0.1.0" }
 
 [package]
-name = "ga_generator"
+name = "ga_testing"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-geometric_algebra = { workspace = true }
-syn = { version = "2.0.104", features = ["full"] }
+ga_generator = { workspace = true }
