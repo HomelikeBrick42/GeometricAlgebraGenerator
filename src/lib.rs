@@ -697,6 +697,9 @@ fn generate_function(
                             .map(|value| emit_value(value, element_type)),
                         quote! { * },
                     );
+                    if result.is_empty() {
+                        result = quote! { <#element_type as ::core::convert::From<i8>>::from(1) };
+                    }
                     quote! { (#result) }
                 }
 
@@ -712,6 +715,9 @@ fn generate_function(
                             .map(|term| emit_term(term, element_type)),
                         quote! { + },
                     );
+                    if result.is_empty() {
+                        result = quote! { <#element_type as ::core::convert::From<i8>>::from(0) };
+                    }
                     result
                 }
 
