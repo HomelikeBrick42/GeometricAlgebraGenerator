@@ -2,7 +2,10 @@ mod ga;
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::{Attribute, Ident, Token, Type, parse::Parse, parse_macro_input};
+use syn::{
+    Attribute, Ident, LitInt, Token, Type, ext::IdentExt, parenthesized, parse::Parse,
+    parse_macro_input,
+};
 
 use crate::ga::{Basis, SquaresTo};
 
@@ -130,23 +133,93 @@ impl Parse for Argument {
     }
 }
 
-struct Variable {}
+enum PrimaryExpression {
+    Name(Ident),
+    Constant(isize),
+    Expression(Box<Expression>),
+}
+
+impl Parse for PrimaryExpression {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let lookahead = input.lookahead1();
+        Ok(if lookahead.peek(Ident::peek_any) {
+            Self::Name(input.parse()?)
+        } else if lookahead.peek(LitInt) {
+            Self::Constant(input.parse::<LitInt>()?.base10_parse()?)
+        } else if lookahead.peek(syn::token::Paren) {
+            let expression_tokens;
+            parenthesized!(expression_tokens in input);
+            let expression = expression_tokens.parse::<Expression>()?;
+            Self::Expression(Box::new(expression))
+        } else {
+            return Err(lookahead.error());
+        })
+    }
+}
+
+enum Expression {
+    PrimaryExpression(PrimaryExpression),
+    Add {
+        left: PrimaryExpression,
+        right: PrimaryExpression,
+    },
+    Sub {
+        left: PrimaryExpression,
+        right: PrimaryExpression,
+    },
+    Mul {
+        left: PrimaryExpression,
+        right: PrimaryExpression,
+    },
+}
+
+impl Parse for Expression {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let left = input.parse()?;
+        Ok(if input.peek(Token![+]) {
+            input.parse::<Token![+]>()?;
+            let right = input.parse()?;
+            Self::Add { left, right }
+        } else if input.peek(Token![-]) {
+            input.parse::<Token![-]>()?;
+            let right = input.parse()?;
+            Self::Sub { left, right }
+        } else if input.peek(Token![*]) {
+            input.parse::<Token![*]>()?;
+            let right = input.parse()?;
+            Self::Mul { left, right }
+        } else {
+            Self::PrimaryExpression(left)
+        })
+    }
+}
+
+struct Variable {
+    name: Ident,
+    value: Expression,
+}
 
 impl Parse for Variable {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         input.parse::<Token![let]>()?;
+        let name = input.parse::<Ident>()?;
+        input.parse::<Token![=]>()?;
+        let value = input.parse::<Expression>()?;
         input.parse::<Token![;]>()?;
-        Ok(Variable {})
+        Ok(Variable { name, value })
     }
 }
 
-struct Return {}
+struct Return {
+    value: Expression,
+}
 
 impl Parse for Return {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         input.parse::<Token![return]>()?;
+        let value = input.parse::<Expression>()?;
         input.parse::<Token![;]>()?;
-        Ok(Return {})
+        Ok(Return { value })
     }
 }
 
@@ -378,9 +451,25 @@ fn generate_function(
     groups: &[Group],
     basis: &Basis,
 ) -> syn::Result<TokenStream> {
-    let argument_and_group = arguments
+    let argument_names_and_groups = arguments
         .iter()
         .map(|argument| {
+            if argument.name == *scalar_name {
+                return Err(syn::Error::new(
+                    argument.name.span(),
+                    "Cannot have an argument with the same name as the scalar name",
+                ));
+            }
+
+            for group in groups {
+                if argument.name == group.name {
+                    return Err(syn::Error::new(
+                        argument.name.span(),
+                        "Cannot have an argument with the same name as a group name",
+                    ));
+                }
+            }
+
             let group = groups
                 .iter()
                 .find(|&group| group.name == argument.group)
