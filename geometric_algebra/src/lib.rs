@@ -346,18 +346,62 @@ fn generate_group(
         .map(|element_list| group_element_list_name(element_list, scalar_name, elements))
         .collect::<syn::Result<Vec<_>>>()?;
 
+    let name_without_span = format_ident!("{}", name.to_string());
     Ok(quote! {
         #(#attrs)*
         pub struct #name {
             #(#member_names: #element_type,)*
         }
 
-        impl #name {
+        // the name_without_span is to prevent hovering over the group name repeating the type defintion twice
+        impl #name_without_span {
             pub fn zero() -> Self {
                 Self {
                     #(#member_names: <#element_type as ::core::convert::From<i8>>::from(0),)*
                 }
             }
+        }
+    })
+}
+
+fn generate_function(
+    Function {
+        name,
+        arguments,
+        return_group,
+        variables,
+        return_expr,
+    }: &Function,
+    element_type: &Type,
+    scalar_name: &Ident,
+    elements: &[Element],
+    groups: &[Group],
+    basis: &Basis,
+) -> syn::Result<TokenStream> {
+    let argument_and_group = arguments
+        .iter()
+        .map(|argument| {
+            let group = groups
+                .iter()
+                .find(|&group| group.name == argument.group)
+                .ok_or_else(|| syn::Error::new(argument.group.span(), "Unknown group name"))?;
+            Ok((&argument.name, group))
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
+
+    let return_group_type = groups
+        .iter()
+        .find(|&group| group.name == *return_group)
+        .ok_or_else(|| syn::Error::new(return_group.span(), "Unknown group name"))?;
+
+    let arguments = arguments
+        .iter()
+        .map(|Argument { name, group }| {
+            quote! { #name: #group }
+        })
+        .collect::<Vec<_>>();
+    Ok(quote! {
+        pub fn #name(#(#arguments,)*) -> #return_group {
         }
     })
 }
@@ -368,7 +412,7 @@ fn generate(
         scalar_name,
         elements,
         groups,
-        functions: _,
+        functions,
     }: GaInput,
 ) -> syn::Result<TokenStream> {
     for (i, element) in elements.iter().enumerate() {
@@ -394,12 +438,27 @@ fn generate(
         .map(|group| generate_group(group, &element_type, &scalar_name, &elements))
         .collect::<syn::Result<Vec<_>>>()?;
 
-    let _basis = Basis {
+    let basis = Basis {
         bases: elements.iter().map(|element| element.squares_to).collect(),
     };
 
+    let functions = functions
+        .iter()
+        .map(|function| {
+            generate_function(
+                function,
+                &element_type,
+                &scalar_name,
+                &elements,
+                &groups,
+                &basis,
+            )
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
+
     Ok(quote! {
         #(#structs)*
+        #(#functions)*
     })
 }
 
