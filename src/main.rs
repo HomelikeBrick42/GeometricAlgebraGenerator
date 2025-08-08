@@ -5,8 +5,9 @@ geometric_algebra::ga! {
 
     group Scalar = s;
     group Vector = e0 + e1 + e2;
-    group Bivector = e1*e2 + e0*e1 + e0*e2;
-    group Rotor = s + e1*e2 + e0*e1 + e0*e2;
+    group Bivector = Vector ^ Vector;
+    group Trivector = Bivector ^ Vector;
+    group Rotor = Scalar + Bivector;
 
     fn test(a: Vector, b: Vector) -> Rotor {
         return a * b;

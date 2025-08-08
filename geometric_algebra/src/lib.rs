@@ -2,6 +2,7 @@ mod ga;
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use std::{cell::Cell, collections::HashMap, fmt::Write};
 use syn::{
     Attribute, Ident, LitInt, Token, Type, ext::IdentExt, parenthesized, parse::Parse,
     parse_macro_input,
@@ -64,30 +65,10 @@ impl Parse for Element {
     }
 }
 
-struct ElementList {
-    elements: Vec<Ident>,
-}
-
-impl Parse for ElementList {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let mut elements = vec![];
-        while {
-            elements.push(input.parse::<Ident>()?);
-            if input.peek(Token![*]) {
-                input.parse::<Token![*]>()?;
-                true
-            } else {
-                false
-            }
-        } {}
-        Ok(ElementList { elements })
-    }
-}
-
 struct Group {
     attrs: Vec<Attribute>,
     name: Ident,
-    element_lists: Vec<ElementList>,
+    expression: Expression,
 }
 
 impl Parse for Group {
@@ -99,22 +80,13 @@ impl Parse for Group {
         let name = input.parse::<Ident>()?;
         input.parse::<Token![=]>()?;
 
-        let mut element_lists = vec![];
-        while {
-            element_lists.push(input.parse::<ElementList>()?);
-            if input.peek(Token![+]) {
-                input.parse::<Token![+]>()?;
-                true
-            } else {
-                false
-            }
-        } {}
+        let expression = input.parse::<Expression>()?;
 
         input.parse::<Token![;]>()?;
         Ok(Group {
             attrs,
             name,
-            element_lists,
+            expression,
         })
     }
 }
@@ -133,64 +105,108 @@ impl Parse for Argument {
     }
 }
 
-enum PrimaryExpression {
+enum Expression {
     Name(Ident),
     Constant(isize),
-    Expression(Box<Expression>),
-}
-
-impl Parse for PrimaryExpression {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let lookahead = input.lookahead1();
-        Ok(if lookahead.peek(Ident::peek_any) {
-            Self::Name(input.parse()?)
-        } else if lookahead.peek(LitInt) {
-            Self::Constant(input.parse::<LitInt>()?.base10_parse()?)
-        } else if lookahead.peek(syn::token::Paren) {
-            let expression_tokens;
-            parenthesized!(expression_tokens in input);
-            let expression = expression_tokens.parse::<Expression>()?;
-            Self::Expression(Box::new(expression))
-        } else {
-            return Err(lookahead.error());
-        })
-    }
-}
-
-enum Expression {
-    PrimaryExpression(PrimaryExpression),
     Add {
-        left: PrimaryExpression,
-        right: PrimaryExpression,
+        left: Box<Expression>,
+        right: Box<Expression>,
     },
     Sub {
-        left: PrimaryExpression,
-        right: PrimaryExpression,
+        left: Box<Expression>,
+        right: Box<Expression>,
     },
     Mul {
-        left: PrimaryExpression,
-        right: PrimaryExpression,
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+    Inner {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+    Wedge {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+    Regressive {
+        left: Box<Expression>,
+        right: Box<Expression>,
     },
 }
 
 impl Parse for Expression {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let left = input.parse()?;
-        Ok(if input.peek(Token![+]) {
-            input.parse::<Token![+]>()?;
-            let right = input.parse()?;
-            Self::Add { left, right }
-        } else if input.peek(Token![-]) {
-            input.parse::<Token![-]>()?;
-            let right = input.parse()?;
-            Self::Sub { left, right }
-        } else if input.peek(Token![*]) {
-            input.parse::<Token![*]>()?;
-            let right = input.parse()?;
-            Self::Mul { left, right }
-        } else {
-            Self::PrimaryExpression(left)
-        })
+        fn primary_expression(input: syn::parse::ParseStream) -> syn::Result<Expression> {
+            let lookahead = input.lookahead1();
+            Ok(if lookahead.peek(Ident::peek_any) {
+                Expression::Name(input.parse()?)
+            } else if lookahead.peek(LitInt) {
+                Expression::Constant(input.parse::<LitInt>()?.base10_parse()?)
+            } else if lookahead.peek(syn::token::Paren) {
+                let expression_tokens;
+                parenthesized!(expression_tokens in input);
+                expression_tokens.parse::<Expression>()?
+            } else {
+                return Err(lookahead.error());
+            })
+        }
+
+        fn binary_operator(input: syn::parse::ParseStream) -> syn::Result<Expression> {
+            let left = primary_expression(input)?;
+            Ok(if input.peek(Token![*]) {
+                input.parse::<Token![*]>()?;
+                let right = primary_expression(input)?;
+                Expression::Mul {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
+            } else if input.peek(Token![|]) {
+                input.parse::<Token![|]>()?;
+                let right = primary_expression(input)?;
+                Expression::Inner {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
+            } else if input.peek(Token![^]) {
+                input.parse::<Token![^]>()?;
+                let right = primary_expression(input)?;
+                Expression::Wedge {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
+            } else if input.peek(Token![&]) {
+                input.parse::<Token![&]>()?;
+                let right = primary_expression(input)?;
+                Expression::Regressive {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
+            } else {
+                left
+            })
+        }
+
+        let mut left = binary_operator(input)?;
+        loop {
+            if input.peek(Token![+]) {
+                input.parse::<Token![+]>()?;
+                let right = binary_operator(input)?;
+                left = Self::Add {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                };
+            } else if input.peek(Token![-]) {
+                input.parse::<Token![-]>()?;
+                let right = binary_operator(input)?;
+                left = Self::Sub {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                };
+            } else {
+                break;
+            };
+        }
+        Ok(left)
     }
 }
 
@@ -202,7 +218,7 @@ struct Variable {
 impl Parse for Variable {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         input.parse::<Token![let]>()?;
-        let name = input.parse::<Ident>()?;
+        let name = input.call(Ident::parse_any)?;
         input.parse::<Token![=]>()?;
         let value = input.parse::<Expression>()?;
         input.parse::<Token![;]>()?;
@@ -333,70 +349,148 @@ impl Parse for GaInput {
     }
 }
 
-fn group_element_list_name(
-    element_list: &ElementList,
+fn eval_expression(
+    expression: &Expression,
+    names: &HashMap<String, Box<dyn Fn() -> ga::Expression + '_>>,
+    basis: &Basis,
+) -> syn::Result<ga::Expression> {
+    Ok(match expression {
+        Expression::Name(ident) => names
+            .get(&ident.to_string())
+            .ok_or_else(|| syn::Error::new(ident.span(), "Unknown name"))?(
+        ),
+        Expression::Constant(value) => ga::Expression {
+            terms: vec![ga::Term {
+                values: vec![ga::Value::Constant(*value)],
+            }],
+        },
+        Expression::Add { left, right } => {
+            let left = eval_expression(left, names, basis)?;
+            let right = eval_expression(right, names, basis)?;
+            left.add(&right)
+        }
+        Expression::Sub { left, right } => {
+            let left = eval_expression(left, names, basis)?;
+            let right = eval_expression(right, names, basis)?;
+            left.add(&right.multiply(&ga::Expression {
+                terms: vec![ga::Term {
+                    values: vec![ga::Value::Constant(-1)],
+                }],
+            }))
+        }
+        Expression::Mul { left, right } => {
+            let left = eval_expression(left, names, basis)?;
+            let right = eval_expression(right, names, basis)?;
+            left.multiply(&right)
+        }
+        Expression::Inner { left, right } => {
+            let left = eval_expression(left, names, basis)?.simplify(basis);
+            let right = eval_expression(right, names, basis)?.simplify(basis);
+            left.inner(&right, basis)
+        }
+        Expression::Wedge { left, right } => {
+            let left = eval_expression(left, names, basis)?.simplify(basis);
+            let right = eval_expression(right, names, basis)?.simplify(basis);
+            left.wedge(&right, basis)
+        }
+        Expression::Regressive { left, right } => {
+            let left = eval_expression(left, names, basis)?.simplify(basis);
+            let right = eval_expression(right, names, basis)?.simplify(basis);
+            left.regressive(&right, basis)
+        }
+    })
+}
+
+/// returns false for positive members, and true for ones that need to be negated before loading/storing
+fn group_get_member_names(
+    expression: &Expression,
     scalar_name: &Ident,
     elements: &[Element],
-) -> syn::Result<Ident> {
-    let mut member_name = String::new();
-
-    let mut appended_names = vec![];
-    for element in &element_list.elements {
-        let element_name = element.to_string();
-
-        for appended_name in &appended_names {
-            if element_name == *appended_name {
-                return Err(syn::Error::new(
-                    element.span(),
-                    "Cannot use the same element twice in an element list",
-                ));
+    groups: &[Group],
+    basis: &Basis,
+) -> syn::Result<Vec<Ident>> {
+    let id = &Cell::new(0usize);
+    let mut names: HashMap<String, Box<dyn Fn() -> ga::Expression>> =
+        HashMap::with_capacity(1 + elements.len() + groups.len());
+    names.insert(
+        scalar_name.to_string(),
+        Box::new(|| {
+            let variable = ga::Value::Variable(format!("_{}", id.get()));
+            id.set(id.get() + 1);
+            ga::Expression {
+                terms: vec![ga::Term {
+                    values: vec![variable],
+                }],
             }
-        }
-
-        let mut found = false;
-
-        if *scalar_name == element_name {
-            if element_list.elements.len() == 1 {
-                found = true;
-                member_name.push_str(&element_name);
-            } else {
-                return Err(syn::Error::new(
-                    element.span(),
-                    "Using a scalar in a group multiplied with other elements is not supported",
-                ));
-            }
-        }
-
-        for element in elements {
-            if element.name == element_name {
-                found = true;
-                member_name.push_str(&element_name);
-                break;
-            }
-        }
-
-        if !found {
-            return Err(syn::Error::new(
-                element.span(),
-                "Unknown scalar, element, or group name",
-            ));
-        }
-
-        appended_names.push(element_name);
+        }),
+    );
+    for (i, element) in elements.iter().enumerate() {
+        names.insert(
+            element.name.to_string(),
+            Box::new(move || {
+                let variable = ga::Value::Variable(format!("_{}", id.get()));
+                id.set(id.get() + 1);
+                ga::Expression {
+                    terms: vec![ga::Term {
+                        values: vec![ga::Value::Basis(ga::BasisIndex(i)), variable],
+                    }],
+                }
+            }),
+        );
     }
-
-    Ok(format_ident!("{member_name}"))
+    for group in groups {
+        let expression = eval_expression(&group.expression, &names, basis)?.simplify(basis);
+        names.insert(
+            group.name.to_string(),
+            Box::new(move || ga::Expression {
+                terms: expression
+                    .split_into_ga_terms()
+                    .into_iter()
+                    .map(|term| ga::Term {
+                        values: term
+                            .bases
+                            .into_iter()
+                            .flat_map(|basis| {
+                                let variable = ga::Value::Variable(format!("_{}", id.get()));
+                                id.set(id.get() + 1);
+                                [ga::Value::Basis(basis), variable]
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            }),
+        );
+    }
+    let names = eval_expression(expression, &names, basis)?
+        .simplify(basis)
+        .split_into_ga_terms()
+        .into_iter()
+        .map(|term| {
+            if term.bases.is_empty() {
+                format_ident!("{scalar_name}")
+            } else {
+                let mut name = String::new();
+                for ga::BasisIndex(index) in term.bases {
+                    write!(name, "{}", elements[index].name).unwrap();
+                }
+                format_ident!("{name}")
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(names)
 }
 
 fn generate_group(
     Group {
         attrs,
         name,
-        element_lists,
+        expression,
     }: &Group,
     element_type: &Type,
     scalar_name: &Ident,
     elements: &[Element],
+    groups: &[Group],
+    basis: &Basis,
 ) -> syn::Result<TokenStream> {
     if scalar_name == name {
         return Err(syn::Error::new(
@@ -414,10 +508,7 @@ fn generate_group(
         }
     }
 
-    let member_names = element_lists
-        .iter()
-        .map(|element_list| group_element_list_name(element_list, scalar_name, elements))
-        .collect::<syn::Result<Vec<_>>>()?;
+    let member_names = group_get_member_names(expression, scalar_name, elements, groups, basis)?;
 
     let name_without_span = format_ident!("{}", name.to_string());
     Ok(quote! {
@@ -491,6 +582,7 @@ fn generate_function(
         .collect::<Vec<_>>();
     Ok(quote! {
         pub fn #name(#(#arguments,)*) -> #return_group {
+            ::core::todo!()
         }
     })
 }
@@ -522,14 +614,24 @@ fn generate(
         }
     }
 
-    let structs = groups
-        .iter()
-        .map(|group| generate_group(group, &element_type, &scalar_name, &elements))
-        .collect::<syn::Result<Vec<_>>>()?;
-
     let basis = Basis {
         bases: elements.iter().map(|element| element.squares_to).collect(),
     };
+
+    let structs = groups
+        .iter()
+        .enumerate()
+        .map(|(i, group)| {
+            generate_group(
+                group,
+                &element_type,
+                &scalar_name,
+                &elements,
+                &groups[..i],
+                &basis,
+            )
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
 
     let functions = functions
         .iter()
