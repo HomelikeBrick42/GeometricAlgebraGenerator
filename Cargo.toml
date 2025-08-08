@@ -1,17 +1,15 @@
-[workspace]
-resolver = "3"
-members = ["ga_generator"]
-package.description = "A crate for generating geometric algebra equations for any algebra and dimension"
-package.license = "MIT"
-package.repository = "https://github.com/HomelikeBrick42/GeometricAlgebraGenerator"
-
-[workspace.dependencies]
-ga_generator = { path = "./ga_generator", version = "0.1.0" }
-
 [package]
-name = "ga_testing"
+name = "ga_generator"
 version = "0.1.0"
 edition = "2024"
+description = "A crate for generating geometric algebra equations for any algebra and dimension"
+license = "MIT"
+repository = "https://github.com/HomelikeBrick42/GeometricAlgebraGenerator"
+
+[lib]
+proc-macro = true
 
 [dependencies]
-ga_generator = { workspace = true }
+proc-macro2 = "1.0.95"
+quote = "1.0.40"
+syn = "2.0.104"
