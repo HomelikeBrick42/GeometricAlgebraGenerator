@@ -176,7 +176,7 @@ impl Parse for Expression {
                     .parse::<LitInt>()?
                     .base10_parse::<usize>()?;
                 expression_tokens.parse::<Token![,]>()?;
-                let operand = primary_expression(&expression_tokens)?;
+                let operand = expression_tokens.parse::<Expression>()?;
                 if expression_tokens.peek(Token![,]) {
                     expression_tokens.parse::<Token![,]>()?;
                 }
