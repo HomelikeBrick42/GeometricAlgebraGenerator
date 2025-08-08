@@ -402,7 +402,7 @@ fn eval_expression(
 }
 
 /// returns false for positive members, and true for ones that need to be negated before loading/storing
-fn group_get_member_names(
+fn get_group_member_names(
     expression: &Expression,
     scalar_name: &Ident,
     elements: &[Element],
@@ -484,13 +484,12 @@ fn generate_group(
     Group {
         attrs,
         name,
-        expression,
+        expression: _,
     }: &Group,
     element_type: &Type,
     scalar_name: &Ident,
     elements: &[Element],
-    groups: &[Group],
-    basis: &Basis,
+    group_member_names: &[Ident],
 ) -> syn::Result<TokenStream> {
     if scalar_name == name {
         return Err(syn::Error::new(
@@ -508,20 +507,18 @@ fn generate_group(
         }
     }
 
-    let member_names = group_get_member_names(expression, scalar_name, elements, groups, basis)?;
-
     let name_without_span = format_ident!("{}", name.to_string());
     Ok(quote! {
         #(#attrs)*
         pub struct #name {
-            #(#member_names: #element_type,)*
+            #(#group_member_names: #element_type,)*
         }
 
         // the name_without_span is to prevent hovering over the group name repeating the type defintion twice
         impl #name_without_span {
             pub fn zero() -> Self {
                 Self {
-                    #(#member_names: <#element_type as ::core::convert::From<i8>>::from(0),)*
+                    #(#group_member_names: <#element_type as ::core::convert::From<i8>>::from(0),)*
                 }
             }
         }
@@ -618,6 +615,20 @@ fn generate(
         bases: elements.iter().map(|element| element.squares_to).collect(),
     };
 
+    let group_member_names = groups
+        .iter()
+        .enumerate()
+        .map(|(i, group)| {
+            get_group_member_names(
+                &group.expression,
+                &scalar_name,
+                &elements,
+                &groups[..i],
+                &basis,
+            )
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
+
     let structs = groups
         .iter()
         .enumerate()
@@ -627,8 +638,7 @@ fn generate(
                 &element_type,
                 &scalar_name,
                 &elements,
-                &groups[..i],
-                &basis,
+                &group_member_names[i],
             )
         })
         .collect::<syn::Result<Vec<_>>>()?;
