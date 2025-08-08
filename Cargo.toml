@@ -3,7 +3,7 @@ resolver = "3"
 members = ["ga_generator"]
 package.description = "A crate for generating geometric algebra equations for any algebra and dimension"
 package.license = "MIT"
-package.repository = "https://github.com/HomelikeBrick42/Thallium"
+package.repository = "https://github.com/HomelikeBrick42/GeometricAlgebraGenerator"
 
 [workspace.dependencies]
 ga_generator = { path = "./ga_generator", version = "0.1.0" }
