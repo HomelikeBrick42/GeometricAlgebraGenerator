@@ -6,7 +6,7 @@ use proc_macro2::TokenStream;
 use quote::{TokenStreamExt, format_ident, quote};
 use std::{cell::Cell, collections::HashMap, fmt::Write};
 use syn::{
-    Attribute, Ident, LitInt, Token, Type, ext::IdentExt, parenthesized, parse::Parse,
+    Attribute, Ident, LitInt, Token, Type, bracketed, ext::IdentExt, parenthesized, parse::Parse,
     parse_macro_input,
 };
 
@@ -265,22 +265,31 @@ impl Parse for Variable {
 }
 
 struct Return {
-    value: Expression,
+    values: Vec<Expression>,
 }
 
 impl Parse for Return {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         input.parse::<Token![return]>()?;
-        let value = input.parse::<Expression>()?;
+        let values = if input.peek(syn::token::Bracket) {
+            let value_tokens;
+            bracketed!(value_tokens in input);
+            value_tokens
+                .parse_terminated(Expression::parse, Token![,])?
+                .into_iter()
+                .collect::<Vec<_>>()
+        } else {
+            vec![input.parse::<Expression>()?]
+        };
         input.parse::<Token![;]>()?;
-        Ok(Return { value })
+        Ok(Return { values })
     }
 }
 
 struct Function {
     name: Ident,
     arguments: Vec<Argument>,
-    return_group: Ident,
+    return_groups: Vec<Ident>,
     variables: Vec<Variable>,
     return_expr: Return,
 }
@@ -298,7 +307,16 @@ impl Parse for Function {
             .collect::<Vec<_>>();
 
         input.parse::<Token![->]>()?;
-        let return_group = input.parse::<Ident>()?;
+        let return_groups = if input.peek(syn::token::Bracket) {
+            let value_tokens;
+            bracketed!(value_tokens in input);
+            value_tokens
+                .parse_terminated(Ident::parse, Token![,])?
+                .into_iter()
+                .collect::<Vec<_>>()
+        } else {
+            vec![input.parse::<Ident>()?]
+        };
 
         let mut variables = vec![];
         let mut return_expr = None;
@@ -327,7 +345,7 @@ impl Parse for Function {
         Ok(Function {
             name,
             arguments,
-            return_group,
+            return_groups,
             variables,
             return_expr,
         })
@@ -605,7 +623,7 @@ fn generate_function(
     Function {
         name,
         arguments,
-        return_group,
+        return_groups,
         variables,
         return_expr,
     }: &Function,
@@ -644,10 +662,15 @@ fn generate_function(
         })
         .collect::<syn::Result<Vec<_>>>()?;
 
-    let _return_group_type = groups
+    let _return_group_types = return_groups
         .iter()
-        .position(|group| group.name == *return_group)
-        .ok_or_else(|| syn::Error::new(return_group.span(), "Unknown group name"))?;
+        .map(|return_group| {
+            groups
+                .iter()
+                .position(|group| group.name == *return_group)
+                .ok_or_else(|| syn::Error::new(return_group.span(), "Unknown group name"))
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
 
     let body = {
         let mut names: HashMap<String, Box<dyn Fn() -> ga::Expression + '_>> =
@@ -711,80 +734,87 @@ fn generate_function(
             );
         }
 
-        let terms = eval_expression(&return_expr.value, &names, basis)?
-            .simplify(basis)
-            .split_into_ga_terms()
-            .into_iter()
-            .map(|term| {
-                let member_name = if term.bases.is_empty() {
-                    format_ident!("{scalar_name}")
-                } else {
-                    let mut name = String::new();
-                    for basis in term.bases {
-                        write!(name, "{}", elements[basis.0].name).unwrap();
-                    }
-                    format_ident!("{name}")
-                };
+        let terms = return_expr
+            .values
+            .iter()
+            .map(|return_expr| {
+                let terms = eval_expression(return_expr, &names, basis)?
+                    .simplify(basis)
+                    .split_into_ga_terms()
+                    .into_iter()
+                    .map(|term| {
+                        let member_name = if term.bases.is_empty() {
+                            format_ident!("{scalar_name}")
+                        } else {
+                            let mut name = String::new();
+                            for basis in term.bases {
+                                write!(name, "{}", elements[basis.0].name).unwrap();
+                            }
+                            format_ident!("{name}")
+                        };
 
-                fn emit_value(value: &ga::Value, element_type: &Type) -> TokenStream {
-                    match value {
-                        ga::Value::Constant(value) => {
-                            let value = i8::try_from(*value).expect("constant should fit in an i8");
-                            quote! { <#element_type as ::core::convert::From<i8>>::from(#value) }
+                        fn emit_value(value: &ga::Value, element_type: &Type) -> TokenStream {
+                            match value {
+                                ga::Value::Constant(value) => {
+                                    let value = i8::try_from(*value).expect("constant should fit in an i8");
+                                    quote! { <#element_type as ::core::convert::From<i8>>::from(#value) }
+                                }
+                                ga::Value::Variable(name) => {
+                                    let name = format_ident!("{name}");
+                                    quote! { #name }
+                                }
+                                ga::Value::Basis(_) => unreachable!(),
+                                ga::Value::Expression(_) => unreachable!(),
+                            }
                         }
-                        ga::Value::Variable(name) => {
-                            let name = format_ident!("{name}");
-                            quote! { #name }
+
+                        fn emit_term(term: &ga::Term, element_type: &Type) -> TokenStream {
+                            let mut result = quote! {};
+                            result.append_separated(
+                                term.values
+                                    .iter()
+                                    .map(|value| emit_value(value, element_type)),
+                                quote! { * },
+                            );
+                            if result.is_empty() {
+                                result = quote! { <#element_type as ::core::convert::From<i8>>::from(1) };
+                            }
+                            quote! { (#result) }
                         }
-                        ga::Value::Basis(_) => unreachable!(),
-                        ga::Value::Expression(_) => unreachable!(),
-                    }
-                }
 
-                fn emit_term(term: &ga::Term, element_type: &Type) -> TokenStream {
-                    let mut result = quote! {};
-                    result.append_separated(
-                        term.values
-                            .iter()
-                            .map(|value| emit_value(value, element_type)),
-                        quote! { * },
-                    );
-                    if result.is_empty() {
-                        result = quote! { <#element_type as ::core::convert::From<i8>>::from(1) };
-                    }
-                    quote! { (#result) }
-                }
+                        fn emit_expression(
+                            expression: &ga::Expression,
+                            element_type: &Type,
+                        ) -> TokenStream {
+                            let mut result = quote! {};
+                            result.append_separated(
+                                expression
+                                    .terms
+                                    .iter()
+                                    .map(|term| emit_term(term, element_type)),
+                                quote! { + },
+                            );
+                            if result.is_empty() {
+                                result = quote! { <#element_type as ::core::convert::From<i8>>::from(0) };
+                            }
+                            result
+                        }
 
-                fn emit_expression(
-                    expression: &ga::Expression,
-                    element_type: &Type,
-                ) -> TokenStream {
-                    let mut result = quote! {};
-                    result.append_separated(
-                        expression
-                            .terms
-                            .iter()
-                            .map(|term| emit_term(term, element_type)),
-                        quote! { + },
-                    );
-                    if result.is_empty() {
-                        result = quote! { <#element_type as ::core::convert::From<i8>>::from(0) };
-                    }
-                    result
-                }
-
-                let expression = emit_expression(&term.expression, element_type);
-                quote! { #member_name: #expression }
+                        let expression = emit_expression(&term.expression, element_type);
+                        quote! { #member_name: #expression }
+                    })
+                    .collect::<Vec<_>>();
+                Ok(terms)
             })
-            .collect::<Vec<_>>();
+            .collect::<syn::Result<Vec<_>>>()?;
 
         quote! {
             #(#parameter_variables)*
             #[allow(clippy::needless_update)]
-            #return_group {
+            (#(#return_groups {
                 #(#terms,)*
-                ..#return_group::zero()
-            }
+                ..#return_groups::zero()
+            }),*)
         }
     };
 
@@ -795,7 +825,7 @@ fn generate_function(
         })
         .collect::<Vec<_>>();
     Ok(quote! {
-        pub fn #name(#(#arguments,)*) -> #return_group {
+        pub fn #name(#(#arguments,)*) -> (#(#return_groups),*) {
             #body
         }
     })
