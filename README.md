@@ -33,7 +33,7 @@ ga_generator::ga! {
 
 ```rust
 pub struct Scalar {
-    s: f32,
+    pub s: f32,
 }
 impl ::core::clone::Clone for Scalar
 where
@@ -65,9 +65,9 @@ impl Scalar {
     }
 }
 pub struct Vector {
-    e0: f32,
-    e1: f32,
-    e2: f32,
+    pub e0: f32,
+    pub e1: f32,
+    pub e2: f32,
 }
 impl ::core::clone::Clone for Vector
 where
@@ -107,9 +107,9 @@ impl Vector {
     }
 }
 pub struct Bivector {
-    e0e1: f32,
-    e0e2: f32,
-    e1e2: f32,
+    pub e0e1: f32,
+    pub e0e2: f32,
+    pub e1e2: f32,
 }
 impl ::core::clone::Clone for Bivector
 where
@@ -149,7 +149,7 @@ impl Bivector {
     }
 }
 pub struct Trivector {
-    e0e1e2: f32,
+    pub e0e1e2: f32,
 }
 impl ::core::clone::Clone for Trivector
 where
@@ -181,10 +181,10 @@ impl Trivector {
     }
 }
 pub struct Rotor {
-    s: f32,
-    e0e1: f32,
-    e0e2: f32,
-    e1e2: f32,
+    pub s: f32,
+    pub e0e1: f32,
+    pub e0e2: f32,
+    pub e1e2: f32,
 }
 impl ::core::clone::Clone for Rotor
 where

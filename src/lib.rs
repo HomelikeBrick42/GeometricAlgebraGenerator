@@ -577,7 +577,7 @@ fn generate_group(
     Ok(quote! {
         #(#attrs)*
         pub struct #name {
-            #(#group_member_names: #element_type,)*
+            #(pub #group_member_names: #element_type,)*
         }
 
         impl ::core::clone::Clone for #name_without_span
